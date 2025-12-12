@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Model files (keep .pth in model/ folder)
+*.pth
+!model/*.pth
+
+# Temporary files
+temp.mp4
+output.mp4
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Old files (backup original structure)
+main.py.old
+model.py.old
+fuzzy_logic.py.old
+detect_images.py.old
+
+# Training & Fine-tuning Infrastructure (temporary ignore)
+training/
+notebooks/
+data/
+TRAINING_GUIDE.md
+model/checkpoints/
+model/evaluation_results.json
