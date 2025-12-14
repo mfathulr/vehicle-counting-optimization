@@ -580,19 +580,19 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
         # Wrap entire realtime processing in try-except
         try:
-        col1, col2 = st.columns([2, 1])
+            col1, col2 = st.columns([2, 1])
 
-        with col1:
-            frame_holder = st.empty()
+            with col1:
+                frame_holder = st.empty()
 
-        with col2:
-            st.markdown("#### 📊 Live Stats")
-            status_display = st.empty()
-            fps_display = st.empty()
-            frame_count_display = st.empty()
-            processed_display = st.empty()
+            with col2:
+                st.markdown("#### 📊 Live Stats")
+                status_display = st.empty()
+                fps_display = st.empty()
+                frame_count_display = st.empty()
+                processed_display = st.empty()
 
-            st.markdown("#### 🚦 Traffic Optimization")
+                st.markdown("#### 🚦 Traffic Optimization")
             mobil_metric = st.empty()
             motor_metric = st.empty()
             duration_metric = st.empty()
