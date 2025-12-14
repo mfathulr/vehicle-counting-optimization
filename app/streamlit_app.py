@@ -12,6 +12,11 @@ import numpy as np
 import tempfile
 import time
 import platform
+import os
+
+# Suppress FFmpeg/OpenCV verbose warnings (TLS, H264 errors are normal for live streams)
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"  # Suppress most FFmpeg logs
+cv2.setLogLevel(0)  # Suppress OpenCV warnings
 
 # Add src to path
 import sys
@@ -287,14 +292,10 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
             display_placeholder = st.empty()
             image = Image.open(uploaded_file)
             image_np = np.array(image)
-            display_placeholder.image(
-                image, use_container_width=True, caption="Original"
-            )
+            display_placeholder.image(image, width="stretch", caption="Original")
 
             # Detection button
-            if st.button(
-                "🚀 Detect Vehicles", type="primary", use_container_width=True
-            ):
+            if st.button("🚀 Detect Vehicles", type="primary", width="stretch"):
                 with st.spinner("🔍 Detecting vehicles..."):
                     pred_image, boxes, scores, pred_classes = image_detector.detect(
                         image_np, threshold=threshold, show_progress=False
@@ -302,7 +303,7 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
                     display_placeholder.image(
                         pred_image,
                         channels="RGB",
-                        use_container_width=True,
+                        width="stretch",
                         caption="Detection Result",
                     )
 
@@ -338,7 +339,7 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
             video_placeholder.video(temp_video_path)
 
             # Detection button
-            if st.button("🚀 Process Video", type="primary", use_container_width=True):
+            if st.button("🚀 Process Video", type="primary", width="stretch"):
                 st.markdown("---")
                 st.markdown("### 🎞️ Processing")
                 progress_bar = st.progress(0, text="🔄 Processing video...")
@@ -352,7 +353,7 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
                         frame_rgb,
                         channels="RGB",
                         caption="Processing...",
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                 # Process video
@@ -414,11 +415,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
     col1, col2 = st.columns(2)
     with col1:
-        youtube_button = st.button(
-            "▶️ Start Detection", type="primary", use_container_width=True
-        )
+        youtube_button = st.button("▶️ Start Detection", type="primary", width="stretch")
     with col2:
-        webcam_button = st.button("📹 Use Webcam Instead", use_container_width=True)
+        webcam_button = st.button("📹 Use Webcam Instead", width="stretch")
 
     st.markdown("---")
 
@@ -481,7 +480,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.markdown(f"### 📡 Live Detection - {st.session_state.source_name}")
 
         # Stop button
-        if st.button("⏹️ Stop Detection", type="primary", use_container_width=True):
+        if st.button("⏹️ Stop Detection", type="primary", width="stretch"):
             st.session_state.realtime_running = False
             st.rerun()
 
@@ -504,9 +503,37 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             duration_metric = st.empty()
 
         def open_capture(source):
+            """Open video capture with fallback backends for URL streams."""
             if isinstance(source, str):
-                backend = cv2.CAP_FFMPEG
+                # For URLs, try multiple backends with fallback
+                backends_to_try = [
+                    (cv2.CAP_FFMPEG, "FFMPEG"),
+                    (cv2.CAP_ANY, "ANY"),
+                ]
+
+                for backend, name in backends_to_try:
+                    try:
+                        cap_obj = cv2.VideoCapture(source, backend)
+                        if cap_obj.isOpened():
+                            # Test if we can actually read a frame
+                            ret, _ = cap_obj.read()
+                            if ret:
+                                cap_obj.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset
+                                cap_obj.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+                                status_display.info(f"✅ Using {name} backend")
+                                time.sleep(0.5)
+                                status_display.empty()
+                                return cap_obj
+                            cap_obj.release()
+                    except Exception as e:
+                        if cap_obj:
+                            cap_obj.release()
+                        continue
+
+                # If all backends fail, return last attempt with CAP_ANY
+                return cv2.VideoCapture(source, cv2.CAP_ANY)
             else:
+                # Webcam
                 sys_name = platform.system()
                 if sys_name == "Windows":
                     backend = cv2.CAP_DSHOW
@@ -514,11 +541,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                     backend = cv2.CAP_AVFOUNDATION
                 else:
                     backend = cv2.CAP_V4L2
-
-            cap_obj = cv2.VideoCapture(source, backend)
-            if backend == cv2.CAP_FFMPEG:
-                cap_obj.set(cv2.CAP_PROP_BUFFERSIZE, 2)
-            return cap_obj
+                return cv2.VideoCapture(source, backend)
 
         # Open video capture
         cap = open_capture(st.session_state.video_source)
@@ -530,6 +553,10 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 )
             else:
                 st.error(f"❌ Could not open {st.session_state.source_name}.")
+                if isinstance(st.session_state.video_source, str):
+                    st.info(
+                        "💡 Stream may be region-restricted or require a different format. Try a different YouTube video."
+                    )
             st.session_state.realtime_running = False
             st.rerun()
 
@@ -646,7 +673,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 display_frame,
                 channels="RGB",
                 caption=f"FPS: {fps:.1f}",
-                use_container_width=True,
+                width="stretch",
             )
 
             # Update stats
@@ -705,7 +732,7 @@ def main():
             ["🎥 Realtime", "📤 Upload"],
             index=0,
             label_visibility="collapsed",
-            help="Upload: static files | Realtime: YouTube/Webcam",
+            help="Realtime: YouTube/Webcam | Upload: static files",
         )
         st.markdown(
             "<div class='sidebar-help'>Upload for static files; Realtime for YouTube/Webcam live streams.</div>",
