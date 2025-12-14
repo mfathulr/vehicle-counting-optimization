@@ -531,19 +531,33 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.session_state.last_url_refresh = 0
     if "realtime_error" not in st.session_state:
         st.session_state.realtime_error = None
+    if "realtime_error_time" not in st.session_state:
+        st.session_state.realtime_error_time = None
     if "debug_realtime" not in st.session_state:
         st.session_state.debug_realtime = st.checkbox(
             "🔍 Enable realtime debug logs",
             value=False,
             help="Show backend, URL, and capture status for troubleshooting in production",
         )
-    
-    # Show any stored errors (persists across reruns)
+
+    # Show any stored errors (persists across reruns) - display prominently at top
+    error_placeholder = st.empty()
     if st.session_state.realtime_error:
-        st.error(f"❌ Realtime Error: {st.session_state.realtime_error}")
-        if st.button("🔄 Clear Error"):
-            st.session_state.realtime_error = None
-            st.rerun()
+        with error_placeholder.container():
+            st.error(f"❌ Realtime Error:\n```\n{st.session_state.realtime_error}\n```")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Clear Error & Retry"):
+                    st.session_state.realtime_error = None
+                    st.session_state.realtime_error_time = None
+                    st.session_state.realtime_running = False
+                    st.rerun()
+            with col2:
+                if st.button("🛑 Stop Realtime Mode"):
+                    st.session_state.realtime_error = None
+                    st.session_state.realtime_error_time = None
+                    st.session_state.realtime_running = False
+                    st.rerun()
 
     # Handle start buttons
     if webcam_button:
@@ -705,7 +719,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             time.sleep(1)
                             status_display.empty()
                         else:
-                            status_display.warning("⚠️ Failed to refresh URL, continuing...")
+                            status_display.warning(
+                                "⚠️ Failed to refresh URL, continuing..."
+                            )
 
                 ret, frame = cap.read()
                 if st.session_state.debug_realtime and frame is None:
@@ -754,28 +770,39 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
                 # Process every N frames
                 if frame_count % frame_skip == 0:
-                    # Resize if needed
-                    if resize_factor < 1.0:
-                        width = int(frame.shape[1] * resize_factor)
-                        height = int(frame.shape[0] * resize_factor)
-                        resized_frame = cv2.resize(frame, (width, height))
-                    else:
-                        resized_frame = frame
+                    try:
+                        # Resize if needed
+                        if resize_factor < 1.0:
+                            width = int(frame.shape[1] * resize_factor)
+                            height = int(frame.shape[0] * resize_factor)
+                            resized_frame = cv2.resize(frame, (width, height))
+                        else:
+                            resized_frame = frame
 
-                    # Detect
-                    pred_image, boxes, scores, pred_classes = image_detector.detect(
-                        resized_frame, threshold=threshold, show_progress=False
-                    )
-
-                    # Resize back if needed
-                    if resize_factor < 1.0:
-                        pred_image = cv2.resize(
-                            pred_image, (frame.shape[1], frame.shape[0])
+                        # Detect - most likely place for errors
+                        pred_image, boxes, scores, pred_classes = image_detector.detect(
+                            resized_frame, threshold=threshold, show_progress=False
                         )
 
-                    last_pred_image = pred_image
-                    last_counts = count_classes(pred_classes)
-                    processed_count += 1
+                        # Resize back if needed
+                        if resize_factor < 1.0:
+                            pred_image = cv2.resize(
+                                pred_image, (frame.shape[1], frame.shape[0])
+                            )
+
+                        last_pred_image = pred_image
+                        last_counts = count_classes(pred_classes)
+                        processed_count += 1
+                        
+                    except Exception as detect_error:
+                        st.session_state.realtime_running = False
+                        st.session_state.realtime_error = f"Detection Error: {type(detect_error).__name__}: {str(detect_error)}"
+                        st.session_state.realtime_error_time = time.time()
+                        import traceback
+                        st.session_state.realtime_error += f"\n\nTraceback:\n{traceback.format_exc()}"
+                        if st.session_state.debug_realtime:
+                            st.warning(f"Detection failed: {detect_error}")
+                        break
 
                 # Calculate FPS
                 current_time = time.time()
@@ -783,7 +810,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 prev_time = current_time
 
                 # Display frame
-                display_frame = last_pred_image if last_pred_image is not None else frame
+                display_frame = (
+                    last_pred_image if last_pred_image is not None else frame
+                )
                 # Ensure BGR to RGB conversion if needed
                 if display_frame is not None:
                     if len(display_frame.shape) == 3 and display_frame.shape[2] == 3:
@@ -813,7 +842,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 processed_display.metric("✅ Processed", processed_count)
 
                 # Update detection results
-                duration = optimizer.optimize(last_counts["mobil"], last_counts["motor"])
+                duration = optimizer.optimize(
+                    last_counts["mobil"], last_counts["motor"]
+                )
                 mobil_metric.metric("🚗 Cars", last_counts["mobil"])
                 motor_metric.metric("🏍️ Motorcycles", last_counts["motor"])
                 duration_metric.metric("⏱️ Duration", f"{duration} sec")
@@ -827,13 +858,24 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             )
 
         except Exception as rt_error:
-            st.session_state.realtime_running = False
-            st.session_state.realtime_error = f"{type(rt_error).__name__}: {str(rt_error)}"
             import traceback
-            st.session_state.realtime_error += f"\n\nTraceback:\n{traceback.format_exc()}"
-            if st.session_state.debug_realtime:
-                st.error(f"Detailed trace:\n{st.session_state.realtime_error}")
-            st.error(f"❌ Realtime loop failed. Check error above or enable debug logs.")
+            error_trace = traceback.format_exc()
+            
+            # Store error in session state for persistence
+            st.session_state.realtime_running = False
+            st.session_state.realtime_error = f"Runtime Error: {type(rt_error).__name__}: {str(rt_error)}\n\nTraceback:\n{error_trace}"
+            st.session_state.realtime_error_time = time.time()
+            
+            # Log to console for debugging
+            st.write(f"[ERROR CAPTURED] {st.session_state.realtime_error}")
+            
+            # Display error in UI
+            st.error(f"❌ Realtime loop failed:\n```\n{st.session_state.realtime_error}\n```")
+            
+            if st.button("🔄 Retry Realtime Mode"):
+                st.session_state.realtime_error = None
+                st.session_state.realtime_running = False
+                st.rerun()
 
     else:
         st.info("👆 Select a source above to start realtime detection.")
