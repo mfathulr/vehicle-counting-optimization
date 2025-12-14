@@ -295,7 +295,9 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
             display_placeholder.image(image, width="stretch", caption="Original")
 
             # Detection button
-            if st.button("🚀 Detect Vehicles", type="primary", use_container_width=True):
+            if st.button(
+                "🚀 Detect Vehicles", type="primary", use_container_width=True
+            ):
                 with st.spinner("🔍 Detecting vehicles..."):
                     pred_image, boxes, scores, pred_classes = image_detector.detect(
                         image_np, threshold=threshold, show_progress=False
@@ -415,7 +417,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
     col1, col2 = st.columns(2)
     with col1:
-        youtube_button = st.button("▶️ Start Detection", type="primary", use_container_width=True)
+        youtube_button = st.button(
+            "▶️ Start Detection", type="primary", use_container_width=True
+        )
     with col2:
         webcam_button = st.button("📹 Use Webcam Instead", use_container_width=True)
 
@@ -451,6 +455,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.session_state.youtube_url = ""
     if "last_url_refresh" not in st.session_state:
         st.session_state.last_url_refresh = 0
+    if "debug_realtime" not in st.session_state:
+        st.session_state.debug_realtime = st.checkbox("🔍 Enable realtime debug logs", value=False, help="Show backend, URL, and capture status for troubleshooting in production")
 
     # Handle start buttons
     if webcam_button:
@@ -520,14 +526,15 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             if ret:
                                 cap_obj.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset
                                 cap_obj.set(cv2.CAP_PROP_BUFFERSIZE, 2)
-                                status_display.info(f"✅ Using {name} backend")
-                                time.sleep(0.5)
-                                status_display.empty()
+                                if st.session_state.debug_realtime:
+                                    st.info(f"✅ Using backend: {name}")
                                 return cap_obj
                             cap_obj.release()
                     except Exception as e:
                         if cap_obj:
                             cap_obj.release()
+                        if st.session_state.debug_realtime:
+                            st.warning(f"Backend {name} failed: {e}")
                         continue
 
                 # If all backends fail, return last attempt with CAP_ANY
@@ -541,9 +548,15 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                     backend = cv2.CAP_AVFOUNDATION
                 else:
                     backend = cv2.CAP_V4L2
-                return cv2.VideoCapture(source, backend)
+                cap_obj = cv2.VideoCapture(source, backend)
+                if st.session_state.debug_realtime:
+                    st.info(f"🎥 Webcam backend: {backend}")
+                return cap_obj
 
         # Open video capture
+        if st.session_state.debug_realtime:
+            st.info(f"🔗 Source: {st.session_state.video_source}")
+            st.info(f"📺 Mode: {st.session_state.source_name}")
         cap = open_capture(st.session_state.video_source)
 
         if not cap.isOpened():
@@ -557,6 +570,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                     st.info(
                         "💡 Stream may be region-restricted or require a different format. Try a different YouTube video."
                     )
+            if st.session_state.debug_realtime and isinstance(st.session_state.video_source, str):
+                st.warning("🔎 Hint: If running in Streamlit Cloud, the HLS URL may be region-locked or require JS runtime extraction.")
             st.session_state.realtime_running = False
             st.rerun()
 
@@ -601,6 +616,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                         status_display.warning("⚠️ Failed to refresh URL, continuing...")
 
             ret, frame = cap.read()
+            if st.session_state.debug_realtime and frame is None:
+                st.warning("⚠️ Read returned no frame (None). Will retry/fallback if configured.")
 
             if not ret:
                 if (
@@ -622,6 +639,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             st.session_state.video_source = new_stream_url
                             cap = open_capture(new_stream_url)
                             st.session_state.last_url_refresh = time.time()
+                            if st.session_state.debug_realtime:
+                                st.info(f"🔁 Reconnected with new URL: {new_stream_url}")
                             status_display.success("✅ Reconnected")
                             time.sleep(1)
                             status_display.empty()
