@@ -472,6 +472,44 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
 
 def realtime_mode(image_detector, optimizer, device, threshold):
     """Handle Realtime mode for webcam and YouTube streams."""
+    # CRITICAL: Initialize session state FIRST before any UI rendering
+    if "realtime_running" not in st.session_state:
+        st.session_state.realtime_running = False
+    if "video_source" not in st.session_state:
+        st.session_state.video_source = None
+    if "source_name" not in st.session_state:
+        st.session_state.source_name = ""
+    if "youtube_url" not in st.session_state:
+        st.session_state.youtube_url = ""
+    if "last_url_refresh" not in st.session_state:
+        st.session_state.last_url_refresh = 0
+    if "realtime_error" not in st.session_state:
+        st.session_state.realtime_error = None
+    if "realtime_error_time" not in st.session_state:
+        st.session_state.realtime_error_time = None
+    if "debug_realtime" not in st.session_state:
+        st.session_state.debug_realtime = False
+
+    # CRITICAL: Show any stored errors BEFORE everything else
+    # Use st.stop() to halt rendering if error exists
+    if st.session_state.realtime_error:
+        st.error(f"❌ Realtime Error:\n```\n{st.session_state.realtime_error}\n```")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Clear Error & Retry", key="clear_error_btn"):
+                st.session_state.realtime_error = None
+                st.session_state.realtime_error_time = None
+                st.session_state.realtime_running = False
+                st.rerun()
+        with col2:
+            if st.button("🛑 Stop & Close", key="stop_realtime_btn"):
+                st.session_state.realtime_error = None
+                st.session_state.realtime_error_time = None
+                st.session_state.realtime_running = False
+                st.session_state.video_source = None
+                st.rerun()
+        st.stop()  # Stop rendering other UI elements
+
     st.markdown("## 🎥 Realtime Mode")
     st.markdown("Live vehicle detection from YouTube stream.")
 
@@ -528,46 +566,14 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 format_func=lambda x: f"{int(x * 100)}%",
             )
 
-    # Initialize session state
-    if "realtime_running" not in st.session_state:
-        st.session_state.realtime_running = False
-    if "video_source" not in st.session_state:
-        st.session_state.video_source = None
-    if "source_name" not in st.session_state:
-        st.session_state.source_name = ""
-    if "youtube_url" not in st.session_state:
-        st.session_state.youtube_url = ""
-    if "last_url_refresh" not in st.session_state:
-        st.session_state.last_url_refresh = 0
-    if "realtime_error" not in st.session_state:
-        st.session_state.realtime_error = None
-    if "realtime_error_time" not in st.session_state:
-        st.session_state.realtime_error_time = None
-    if "debug_realtime" not in st.session_state:
-        st.session_state.debug_realtime = st.checkbox(
-            "🔍 Enable realtime debug logs",
-            value=False,
-            help="Show backend, URL, and capture status for troubleshooting in production",
-        )
-
-    # Show any stored errors (persists across reruns) - display prominently at top
-    error_placeholder = st.empty()
-    if st.session_state.realtime_error:
-        with error_placeholder.container():
-            st.error(f"❌ Realtime Error:\n```\n{st.session_state.realtime_error}\n```")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🔄 Clear Error & Retry"):
-                    st.session_state.realtime_error = None
-                    st.session_state.realtime_error_time = None
-                    st.session_state.realtime_running = False
-                    st.rerun()
-            with col2:
-                if st.button("🛑 Stop Realtime Mode"):
-                    st.session_state.realtime_error = None
-                    st.session_state.realtime_error_time = None
-                    st.session_state.realtime_running = False
-                    st.rerun()
+    # Debug checkbox
+    st.markdown("<div class='sidebar-card'>", unsafe_allow_html=True)
+    st.session_state.debug_realtime = st.checkbox(
+        "🔍 Enable realtime debug logs",
+        value=st.session_state.debug_realtime,
+        help="Show backend, URL, and capture status for troubleshooting in production",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # Handle start buttons
     if webcam_button:
