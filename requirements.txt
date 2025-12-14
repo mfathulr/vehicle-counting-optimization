@@ -10,6 +10,7 @@ requests>=2.30.0
 scikit-fuzzy>=0.4.2
 scipy>=1.12.0
 streamlit>=1.39.0
+streamlink>=6.7.0
 torch>=2.5.0
 torchvision>=0.20.0
 yt-dlp>=2024.1.0

@@ -250,10 +250,17 @@ def get_youtube_stream_url(youtube_url: str) -> str:
             if "formats" in info:
                 # Prefer MP4 HLS or DASH that OpenCV can read
                 for fmt in info["formats"]:
-                    if fmt.get("url") and fmt.get("protocol") in ["m3u8", "m3u8_native"]:
+                    if fmt.get("url") and fmt.get("protocol") in [
+                        "m3u8",
+                        "m3u8_native",
+                    ]:
                         return fmt["url"]
                 for fmt in info["formats"]:
-                    if fmt.get("url") and fmt.get("ext") in ["mp4", "webm"] and fmt.get("vcodec") != "none":
+                    if (
+                        fmt.get("url")
+                        and fmt.get("ext") in ["mp4", "webm"]
+                        and fmt.get("vcodec") != "none"
+                    ):
                         return fmt["url"]
 
             st.error("❌ No compatible video format found. Try a different video.")
@@ -272,7 +279,24 @@ def get_youtube_stream_url(youtube_url: str) -> str:
         else:
             st.error(f"❌ Error: {error_msg}")
             if "hls" in error_msg.lower() or "segment" in error_msg.lower():
-                st.info("💡 Tip: Some YouTube livestreams block HLS segment access on cloud servers. Try a different video or enable debug logs to inspect backend.")
+                st.info(
+                    "💡 Tip: Some YouTube livestreams block HLS segment access on cloud servers. Try a different video or enable debug logs to inspect backend."
+                )
+            # Try Streamlink fallback to resolve a playable URL
+            try:
+                import subprocess
+                proc = subprocess.run(
+                    ["streamlink", "--stream-url", youtube_url, "best"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                if proc.returncode == 0 and proc.stdout:
+                    url = proc.stdout.strip()
+                    st.info("✅ Streamlink fallback resolved a URL")
+                    return url
+            except Exception as se:
+                st.warning(f"⚠️ Streamlink fallback failed: {se}")
         return ""
 
 
