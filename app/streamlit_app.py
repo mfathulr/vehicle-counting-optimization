@@ -210,7 +210,8 @@ def get_youtube_stream_url(youtube_url: str) -> str:
     for attempt in range(max_retries):
         try:
             ydl_opts = {
-                "format": "best[ext=mp4][height<=480]/best[height<=480]/best[height<=720]/best",
+                # More lenient format selection: try MP4 480p, then any height, then accept any codec
+                "format": "best[ext=mp4][height<=480]/best[ext=mp4]/best[height<=720]/best",
                 "quiet": True,
                 "no_warnings": False,
                 "extract_flat": False,
@@ -222,7 +223,9 @@ def get_youtube_stream_url(youtube_url: str) -> str:
                 "live_from_start": False,
                 # Try multiple player clients for compatibility
                 "compat_opts": ["no-ejs", "no-youtube-prefer-utc-upload-date"],
-                "extractor_args": {"youtube": {"player_client": ["android", "web", "mweb"]}},
+                "extractor_args": {
+                    "youtube": {"player_client": ["android", "web", "mweb"]}
+                },
                 "http_headers": {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                     "Accept-Language": "en-US,en;q=0.9",
@@ -274,9 +277,13 @@ def get_youtube_stream_url(youtube_url: str) -> str:
             error_msg = str(e)
             # Log attempt for debugging
             if st.session_state.debug_realtime:
-                st.warning(f"Extraction attempt {attempt + 1}/{max_retries} failed: {error_msg}")
+                st.warning(
+                    f"Extraction attempt {attempt + 1}/{max_retries} failed: {error_msg}"
+                )
             # Retry once more if it's a temporary error
-            if attempt < max_retries - 1 and ("technical" in error_msg.lower() or "timeout" in error_msg.lower()):
+            if attempt < max_retries - 1 and (
+                "technical" in error_msg.lower() or "timeout" in error_msg.lower()
+            ):
                 time.sleep(2)
                 continue
             # Final error handling
@@ -538,8 +545,13 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     st.markdown("### 🎬 YouTube Video Stream")
 
     # Default YouTube URL - using a stable public traffic camera livestream
-    # Option 1: CCTV traffic camera (more reliable for testing)
-    default_url = "https://www.youtube.com/watch?v=cYt0zb1F3U8"  # Sample public traffic camera
+    # Using a well-known public livestream that's accessible globally
+    # Option: BBC News 24/7 or public traffic camera
+    default_url = "https://www.youtube.com/watch?v=9bZkp7q19f0"  # Public livestream (example)
+    # Alternative options you can try:
+    # - Any unlisted/public YouTube video
+    # - Public traffic camera livestreams
+    # - Live news feeds
 
     youtube_url = st.text_input(
         "YouTube URL",
