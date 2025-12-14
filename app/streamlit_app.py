@@ -285,6 +285,7 @@ def get_youtube_stream_url(youtube_url: str) -> str:
             # Try Streamlink fallback to resolve a playable URL
             try:
                 import subprocess
+
                 proc = subprocess.run(
                     ["streamlink", "--stream-url", youtube_url, "best"],
                     capture_output=True,
@@ -377,6 +378,23 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
                 st.markdown("### 🎞️ Processing")
                 progress_bar = st.progress(0, text="🔄 Processing video...")
 
+                # Debug: Check video properties first
+                try:
+                    cap_check = cv2.VideoCapture(temp_video_path)
+                    if cap_check.isOpened():
+                        w = int(cap_check.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        h = int(cap_check.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        fps_val = int(cap_check.get(cv2.CAP_PROP_FPS))
+                        total = int(cap_check.get(cv2.CAP_PROP_FRAME_COUNT))
+                        st.info(f"📹 Video: {w}x{h} @ {fps_val}fps, {total} frames")
+                        cap_check.release()
+                    else:
+                        st.error("❌ Could not open video file. May be corrupted or unsupported format.")
+                        st.stop()
+                except Exception as e:
+                    st.error(f"❌ Video check failed: {e}")
+                    st.stop()
+
                 def update_progress(progress: float, frame: np.ndarray):
                     progress_bar.progress(
                         progress, text=f"🔄 Processing: {int(progress * 100)}%"
@@ -391,12 +409,27 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
 
                 # Process video
                 output_path = temp_video_path.replace(".mp4", "_output.mp4")
-                final_counts, avg_fps = video_detector.process_video(
-                    temp_video_path,
-                    output_path,
-                    threshold=threshold,
-                    progress_callback=update_progress,
-                )
+                try:
+                    final_counts, avg_fps = video_detector.process_video(
+                        temp_video_path,
+                        output_path,
+                        threshold=threshold,
+                        progress_callback=update_progress,
+                    )
+                    
+                    # Debug: Check output file
+                    import os
+                    if os.path.exists(output_path):
+                        size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                        st.success(f"✅ Output file created ({size_mb:.1f} MB)")
+                    else:
+                        st.error("❌ Output file was not created. Check codec or disk space.")
+                        st.stop()
+                except Exception as ve:
+                    st.error(f"❌ Video processing error: {ve}")
+                    import traceback
+                    st.error(f"Traceback: {traceback.format_exc()}")
+                    st.stop()
 
                 progress_bar.empty()
 
@@ -421,8 +454,10 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
                 )
 
                 # Display processed video in the same placeholder
-                if Path(output_path).exists():
+                if os.path.exists(output_path):
                     video_placeholder.video(output_path)
+                else:
+                    st.warning("⚠️ Processed video could not be displayed.")
     else:
         st.info("👆 Please upload an image or video file to begin.")
 
