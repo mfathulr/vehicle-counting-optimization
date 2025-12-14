@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 import tempfile
 import time
+import platform
 
 # Add src to path
 import sys
@@ -202,10 +203,17 @@ def get_youtube_stream_url(youtube_url: str) -> str:
 
     try:
         ydl_opts = {
-            "format": "worst[height>=360][ext=mp4]/worst",
-            "quiet": False,
+            "format": "best[ext=mp4][height<=480]/best[height<=480]/best",
+            "quiet": True,
             "no_warnings": False,
             "extract_flat": False,
+            # Avoid JS runtime requirement by preferring Android/Web clients
+            "compat_opts": ["no-ejs"],
+            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -246,6 +254,10 @@ def get_youtube_stream_url(youtube_url: str) -> str:
             st.error("❌ This video/stream is not available. Please try:")
             st.info(
                 "💡 Use a regular YouTube video (not expired livestream)\n💡 Check if the video is public and playable"
+            )
+        elif "javascript" in error_msg.lower() or "js" in error_msg.lower():
+            st.warning(
+                "⚠️ yt-dlp needs a JS runtime for this stream. Install Node.js or Deno on the server for better reliability."
             )
         else:
             st.error(f"❌ Error: {error_msg}")
@@ -436,6 +448,10 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.session_state.video_source = None
     if "source_name" not in st.session_state:
         st.session_state.source_name = ""
+    if "youtube_url" not in st.session_state:
+        st.session_state.youtube_url = ""
+    if "last_url_refresh" not in st.session_state:
+        st.session_state.last_url_refresh = 0
 
     # Handle start buttons
     if webcam_button:
@@ -454,6 +470,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                     st.session_state.realtime_running = True
                     st.session_state.video_source = stream_url
                     st.session_state.source_name = "YouTube Stream"
+                    st.session_state.youtube_url = youtube_url
+                    st.session_state.last_url_refresh = time.time()
                     st.rerun()
                 else:
                     st.error("❌ Failed to extract YouTube stream URL.")
@@ -475,6 +493,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
         with col2:
             st.markdown("#### 📊 Live Stats")
+            status_display = st.empty()
             fps_display = st.empty()
             frame_count_display = st.empty()
             processed_display = st.empty()
@@ -484,11 +503,33 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             motor_metric = st.empty()
             duration_metric = st.empty()
 
+        def open_capture(source):
+            if isinstance(source, str):
+                backend = cv2.CAP_FFMPEG
+            else:
+                sys_name = platform.system()
+                if sys_name == "Windows":
+                    backend = cv2.CAP_DSHOW
+                elif sys_name == "Darwin":
+                    backend = cv2.CAP_AVFOUNDATION
+                else:
+                    backend = cv2.CAP_V4L2
+
+            cap_obj = cv2.VideoCapture(source, backend)
+            if backend == cv2.CAP_FFMPEG:
+                cap_obj.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+            return cap_obj
+
         # Open video capture
-        cap = cv2.VideoCapture(st.session_state.video_source)
+        cap = open_capture(st.session_state.video_source)
 
         if not cap.isOpened():
-            st.error(f"❌ Could not open {st.session_state.source_name}.")
+            if st.session_state.source_name == "Webcam":
+                st.error(
+                    "❌ Webcam not available. Check camera permissions, index value, or connect a camera."
+                )
+            else:
+                st.error(f"❌ Could not open {st.session_state.source_name}.")
             st.session_state.realtime_running = False
             st.rerun()
 
@@ -503,14 +544,69 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         prev_time = time.time()
         last_pred_image = None
         last_counts = {"mobil": 0, "motor": 0}
+        retry_count = 0
+        max_retries = 3
+        url_refresh_interval = 300  # 5 minutes
 
         # Processing loop
         while st.session_state.realtime_running:
+            # Check if we need to refresh YouTube URL (for livestreams)
+            if (
+                st.session_state.source_name == "YouTube Stream"
+                and st.session_state.youtube_url
+            ):
+                time_since_refresh = time.time() - st.session_state.last_url_refresh
+                if time_since_refresh > url_refresh_interval:
+                    status_display.info("🔄 Refreshing stream URL...")
+                    new_stream_url = get_youtube_stream_url(
+                        st.session_state.youtube_url
+                    )
+                    if new_stream_url:
+                        cap.release()
+                        st.session_state.video_source = new_stream_url
+                        cap = open_capture(new_stream_url)
+                        st.session_state.last_url_refresh = time.time()
+                        retry_count = 0
+                        status_display.success("✅ Stream URL refreshed")
+                        time.sleep(1)
+                        status_display.empty()
+                    else:
+                        status_display.warning("⚠️ Failed to refresh URL, continuing...")
+
             ret, frame = cap.read()
 
             if not ret:
-                st.error(f"❌ Failed to read from {st.session_state.source_name}.")
-                break
+                if (
+                    st.session_state.source_name == "YouTube Stream"
+                    and retry_count < max_retries
+                ):
+                    retry_count += 1
+                    status_display.warning(
+                        f"⚠️ Connection lost. Retry {retry_count}/{max_retries}..."
+                    )
+                    time.sleep(2)
+                    cap.release()
+                    # Try to re-extract fresh URL
+                    if st.session_state.youtube_url:
+                        new_stream_url = get_youtube_stream_url(
+                            st.session_state.youtube_url
+                        )
+                        if new_stream_url:
+                            st.session_state.video_source = new_stream_url
+                            cap = open_capture(new_stream_url)
+                            st.session_state.last_url_refresh = time.time()
+                            status_display.success("✅ Reconnected")
+                            time.sleep(1)
+                            status_display.empty()
+                            continue
+                    else:
+                        cap = open_capture(st.session_state.video_source)
+                        continue
+                else:
+                    st.error(
+                        f"❌ Stream ended or connection lost after {max_retries} retries."
+                    )
+                    break
 
             frame_count += 1
 
@@ -554,6 +650,10 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             )
 
             # Update stats
+            if status_display and not status_display._is_empty:
+                pass
+            else:
+                status_display.success("🟢 Live")
             fps_display.metric("🎯 FPS", f"{fps:.1f}")
             frame_count_display.metric("📊 Total Frames", frame_count)
             processed_display.metric("✅ Processed", processed_count)
@@ -602,8 +702,8 @@ def main():
         st.markdown("<div class='sidebar-label'>Mode</div>", unsafe_allow_html=True)
         mode = st.radio(
             "Select Mode",
-            ["📤 Upload", "🎥 Realtime"],
-            index=1,
+            ["🎥 Realtime", "📤 Upload"],
+            index=0,
             label_visibility="collapsed",
             help="Upload: static files | Realtime: YouTube/Webcam",
         )
