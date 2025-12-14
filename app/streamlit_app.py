@@ -691,19 +691,19 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         help="Enter YouTube video or livestream URL (prefer public traffic cameras or regular videos)",
     )
 
-    # Optional: upload YouTube cookies.txt (local use only; stored temporarily)
-    cookies_upload = st.file_uploader(
-        "YouTube cookies.txt (optional)",
-        type=["txt"],
-        help="Export Netscape cookies.txt from incognito YouTube session, then upload to bypass bot checks.",
-    )
-    if cookies_upload:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
-            tmp.write(cookies_upload.getbuffer())
-            st.session_state.youtube_cookies_path = tmp.name
-        st.success("Cookies loaded for this session (local use only).")
-    elif st.session_state.youtube_cookies_path:
-        st.caption("Using uploaded cookies.txt for YouTube extraction.")
+    with st.expander("🔒 Advanced: Upload YouTube cookies (optional)", expanded=False):
+        cookies_upload = st.file_uploader(
+            "YouTube cookies.txt (optional)",
+            type=["txt"],
+            help="Export Netscape cookies.txt from incognito YouTube session, then upload to bypass bot checks. Local use only.",
+        )
+        if cookies_upload:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+                tmp.write(cookies_upload.getbuffer())
+                st.session_state.youtube_cookies_path = tmp.name
+            st.success("Cookies loaded for this session (local use only).")
+        elif st.session_state.youtube_cookies_path:
+            st.caption("Using uploaded cookies.txt for YouTube extraction.")
 
     # Direct stream URL (HLS .m3u8 or MP4) to bypass yt-dlp/Streamlink in cloud
     st.info(
