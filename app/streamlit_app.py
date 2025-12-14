@@ -324,7 +324,7 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
             display_placeholder = st.empty()
             image = Image.open(uploaded_file)
             image_np = np.array(image)
-            display_placeholder.image(image, width="stretch", caption="Original")
+            display_placeholder.image(image, use_container_width=True, caption="Original")
 
             # Detection button
             if st.button(
@@ -337,7 +337,7 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
                     display_placeholder.image(
                         pred_image,
                         channels="RGB",
-                        width="stretch",
+                        use_container_width=True,
                         caption="Detection Result",
                     )
 
@@ -389,7 +389,9 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
                         st.info(f"📹 Video: {w}x{h} @ {fps_val}fps, {total} frames")
                         cap_check.release()
                     else:
-                        st.error("❌ Could not open video file. May be corrupted or unsupported format.")
+                        st.error(
+                            "❌ Could not open video file. May be corrupted or unsupported format."
+                        )
                         st.stop()
                 except Exception as e:
                     st.error(f"❌ Video check failed: {e}")
@@ -404,7 +406,7 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
                         frame_rgb,
                         channels="RGB",
                         caption="Processing...",
-                        width="stretch",
+                        use_container_width=True,
                     )
 
                 # Process video
@@ -416,18 +418,22 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
                         threshold=threshold,
                         progress_callback=update_progress,
                     )
-                    
+
                     # Debug: Check output file
                     import os
+
                     if os.path.exists(output_path):
                         size_mb = os.path.getsize(output_path) / (1024 * 1024)
                         st.success(f"✅ Output file created ({size_mb:.1f} MB)")
                     else:
-                        st.error("❌ Output file was not created. Check codec or disk space.")
+                        st.error(
+                            "❌ Output file was not created. Check codec or disk space."
+                        )
                         st.stop()
                 except Exception as ve:
                     st.error(f"❌ Video processing error: {ve}")
                     import traceback
+
                     st.error(f"Traceback: {traceback.format_exc()}")
                     st.stop()
 
@@ -770,7 +776,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 display_frame,
                 channels="RGB",
                 caption=f"FPS: {fps:.1f}",
-                width="stretch",
+                use_container_width=True,
             )
 
             # Update stats
