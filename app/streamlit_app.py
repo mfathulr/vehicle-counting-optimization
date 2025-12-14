@@ -475,6 +475,16 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     st.markdown("## 🎥 Realtime Mode")
     st.markdown("Live vehicle detection from YouTube stream.")
 
+    # Check if running in Streamlit Cloud and warn about resource constraints
+    is_cloud = (
+        "STREAMLIT_SERVER_HEADLESS" in os.environ
+        or "streamlit" in sys.modules[__name__].__file__.lower()
+    )
+    if is_cloud and device == "cpu":
+        st.info(
+            "💡 Running on Streamlit Cloud with CPU. Performance may be slower. If inference fails, try:\n1. Lower resolution (50%)\n2. Increase frame skip (5+)\n3. Close other apps"
+        )
+
     st.markdown("---")
 
     # YouTube stream as default
@@ -704,7 +714,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                         st.session_state.source_name == "YouTube Stream"
                         and st.session_state.youtube_url
                     ):
-                        time_since_refresh = time.time() - st.session_state.last_url_refresh
+                        time_since_refresh = (
+                            time.time() - st.session_state.last_url_refresh
+                        )
                         if time_since_refresh > url_refresh_interval:
                             status_display.info("🔄 Refreshing stream URL...")
                             new_stream_url = get_youtube_stream_url(
@@ -780,10 +792,22 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             else:
                                 resized_frame = frame
 
-                            # Detect - most likely place for errors
-                            pred_image, boxes, scores, pred_classes = image_detector.detect(
-                                resized_frame, threshold=threshold, show_progress=False
+                            # Detect - most likely place for errors with timing diagnostic
+                            detect_start = time.time()
+                            pred_image, boxes, scores, pred_classes = (
+                                image_detector.detect(
+                                    resized_frame,
+                                    threshold=threshold,
+                                    show_progress=False,
+                                )
                             )
+                            detect_time = time.time() - detect_start
+
+                            # Warn if detection is taking too long (might indicate issues)
+                            if detect_time > 5.0 and st.session_state.debug_realtime:
+                                st.warning(
+                                    f"⚠️ Inference slow: {detect_time:.2f}s (GPU/resource issue?)"
+                                )
 
                             # Resize back if needed
                             if resize_factor < 1.0:
@@ -795,8 +819,21 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             last_counts = count_classes(pred_classes)
                             processed_count += 1
 
+                        except RuntimeError as mem_error:
+                            # GPU/memory error - common in cloud
+                            if (
+                                "cuda" in str(mem_error).lower()
+                                or "out of memory" in str(mem_error).lower()
+                            ):
+                                st.session_state.realtime_running = False
+                                st.session_state.realtime_error = f"GPU Memory Error: {str(mem_error)}\n\nTry: Use CPU instead of CUDA, or reduce resolution"
+                                cap.release()
+                                st.rerun()
+                            else:
+                                raise
                         except Exception as detect_error:
                             import traceback
+
                             st.session_state.realtime_running = False
                             error_trace = traceback.format_exc()
                             st.session_state.realtime_error = f"Detection Error: {type(detect_error).__name__}: {str(detect_error)}\n\nTraceback:\n{error_trace}"
@@ -817,7 +854,10 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                     )
                     # Ensure BGR to RGB conversion if needed
                     if display_frame is not None:
-                        if len(display_frame.shape) == 3 and display_frame.shape[2] == 3:
+                        if (
+                            len(display_frame.shape) == 3
+                            and display_frame.shape[2] == 3
+                        ):
                             # Check if it needs BGR to RGB conversion
                             display_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                         else:
@@ -852,9 +892,10 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                     duration_metric.metric("⏱️ Duration", f"{duration} sec")
 
                     time.sleep(0.001)
-                    
+
                 except Exception as loop_error:
                     import traceback
+
                     st.session_state.realtime_running = False
                     error_trace = traceback.format_exc()
                     st.session_state.realtime_error = f"Loop Error: {type(loop_error).__name__}: {str(loop_error)}\n\nTraceback:\n{error_trace}"
@@ -989,12 +1030,41 @@ def main():
         st.warning("⚠️ CUDA not available. Using CPU.")
         device = "cpu"
 
-    # Load model
+    # Load model with diagnostics
     with st.spinner("🔄 Loading model..."):
-        model = load_model(device)
-        image_detector = ImageDetector(model, device)
-        video_detector = VideoDetector(model, device)
-        optimizer = TrafficLightOptimizer()
+        try:
+            import psutil
+
+            process = psutil.Process()
+            mem_before = process.memory_info().rss / 1024 / 1024  # MB
+
+            model = load_model(device)
+            image_detector = ImageDetector(model, device)
+            video_detector = VideoDetector(model, device)
+            optimizer = TrafficLightOptimizer()
+
+            mem_after = process.memory_info().rss / 1024 / 1024  # MB
+            mem_used = mem_after - mem_before
+
+            if st.session_state.get("debug_realtime"):
+                st.info(
+                    f"💾 Memory used for model: {mem_used:.1f}MB | Total: {mem_after:.1f}MB"
+                )
+
+        except RuntimeError as e:
+            if "cuda" in str(e).lower():
+                st.error(f"❌ CUDA Error: {e}\nFalling back to CPU...")
+                device = "cpu"
+                model = load_model(device)
+                image_detector = ImageDetector(model, device)
+                video_detector = VideoDetector(model, device)
+                optimizer = TrafficLightOptimizer()
+            else:
+                raise
+        except Exception as e:
+            st.error(f"❌ Model loading failed: {type(e).__name__}: {str(e)}")
+            st.info("This might be a memory or GPU issue. Try reloading the page.")
+            return
 
     st.success(f"✅ Model loaded! Device: {device.upper()}")
 
