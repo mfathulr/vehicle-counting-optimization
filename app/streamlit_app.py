@@ -221,11 +221,15 @@ def get_youtube_stream_url(youtube_url: str) -> str:
                 "geo_bypass_country": "US",
                 "noplaylist": True,
                 "live_from_start": False,
-                # Try multiple player clients for compatibility
+                # Try safe clients only; skip android/mweb to avoid PO token warnings/403
                 "compat_opts": ["no-ejs", "no-youtube-prefer-utc-upload-date"],
                 "extractor_args": {
-                    "youtube": {"player_client": ["android", "web", "mweb"]}
+                    "youtube": {
+                        "player_client": ["web", "tv_embedded"],
+                        "player_skip": ["android", "mweb", "ios"],
+                    }
                 },
+                "force_ipv4": True,
                 "http_headers": {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                     "Accept-Language": "en-US,en;q=0.9",
@@ -299,6 +303,31 @@ def get_youtube_stream_url(youtube_url: str) -> str:
             else:
                 st.error(f"❌ Error: {error_msg}")
             return ""
+    return ""
+
+
+def get_streamlink_url(youtube_url: str) -> str:
+    """Resolve a playable URL using Streamlink (helpful in cloud when yt-dlp formats are blocked)."""
+    try:
+        import streamlink
+    except ImportError:
+        st.error(
+            "❌ streamlink is not installed. Please install it using: pip install streamlink"
+        )
+        return ""
+
+    try:
+        session = streamlink.Streamlink()
+        streams = session.streams(youtube_url)
+        if not streams:
+            return ""
+        # Prefer best, fall back to 720p/480p
+        best = streams.get("best") or streams.get("720p") or streams.get("480p")
+        if best:
+            return best.to_url()
+    except Exception as e:
+        if st.session_state.get("debug_realtime"):
+            st.warning(f"Streamlink resolve failed: {e}")
     return ""
 
 
@@ -490,6 +519,12 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.session_state.realtime_error_time = None
     if "debug_realtime" not in st.session_state:
         st.session_state.debug_realtime = False
+    if "force_streamlink" not in st.session_state:
+        st.session_state.force_streamlink = False
+    if "realtime_ready" not in st.session_state:
+        st.session_state.realtime_ready = False
+    if "realtime_preview_image" not in st.session_state:
+        st.session_state.realtime_preview_image = None
 
     # CRITICAL: Show any stored errors BEFORE everything else
     # Use st.stop() to halt rendering if error exists
@@ -547,7 +582,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     # Default YouTube URL - using a stable public traffic camera livestream
     # Using a well-known public livestream that's accessible globally
     # Option: BBC News 24/7 or public traffic camera
-    default_url = "https://www.youtube.com/watch?v=9bZkp7q19f0"  # Public livestream (example)
+    default_url = (
+        "https://www.youtube.com/watch?v=9bZkp7q19f0"  # Public livestream (example)
+    )
     # Alternative options you can try:
     # - Any unlisted/public YouTube video
     # - Public traffic camera livestreams
@@ -562,7 +599,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     col1, col2 = st.columns(2)
     with col1:
         youtube_button = st.button(
-            "▶️ Start Detection", type="primary", use_container_width=True
+            "📡 Load Stream", type="primary", use_container_width=True
         )
     with col2:
         webcam_button = st.button("📹 Use Webcam Instead", use_container_width=True)
@@ -595,6 +632,11 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         value=st.session_state.debug_realtime,
         help="Show backend, URL, and capture status for troubleshooting in production",
     )
+    st.session_state.force_streamlink = st.checkbox(
+        "🛠️ Force Streamlink fallback for YouTube",
+        value=st.session_state.force_streamlink,
+        help="If yt-dlp formats are blocked in cloud, try Streamlink to resolve a playable URL",
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Handle start buttons
@@ -608,17 +650,69 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         if not youtube_url:
             st.error("❌ Please enter a YouTube URL.")
         else:
-            with st.spinner("🔄 Extracting YouTube stream URL..."):
-                stream_url = get_youtube_stream_url(youtube_url)
+            with st.spinner("🔄 Resolving and probing stream..."):
+                stream_url = ""
+                if st.session_state.force_streamlink:
+                    stream_url = get_streamlink_url(youtube_url)
+                if not stream_url:
+                    stream_url = get_youtube_stream_url(youtube_url)
+                if not stream_url and not st.session_state.force_streamlink:
+                    # Fallback: try Streamlink if yt-dlp failed
+                    stream_url = get_streamlink_url(youtube_url)
+
                 if stream_url:
-                    st.session_state.realtime_running = True
-                    st.session_state.video_source = stream_url
-                    st.session_state.source_name = "YouTube Stream"
-                    st.session_state.youtube_url = youtube_url
-                    st.session_state.last_url_refresh = time.time()
-                    st.rerun()
+                    # Probe the stream to ensure it opens and grab a preview frame
+                    cap_probe = open_capture(stream_url)
+                    if cap_probe.isOpened():
+                        ret_probe, frame_probe = cap_probe.read()
+                        if ret_probe and frame_probe is not None:
+                            try:
+                                ok, buf = cv2.imencode(".png", frame_probe)
+                                if ok:
+                                    st.session_state.realtime_preview_image = (
+                                        buf.tobytes()
+                                    )
+                            except Exception:
+                                st.session_state.realtime_preview_image = None
+                            st.session_state.realtime_ready = True
+                            st.session_state.realtime_running = False
+                            st.session_state.video_source = stream_url
+                            st.session_state.source_name = "YouTube Stream"
+                            st.session_state.youtube_url = youtube_url
+                            st.session_state.last_url_refresh = time.time()
+                            cap_probe.release()
+                            st.success(
+                                "✅ Stream loaded. Click Start Detection to begin."
+                            )
+                            st.rerun()
+                        else:
+                            cap_probe.release()
+                            st.error(
+                                "❌ Stream resolved but no frame could be read. Try another URL."
+                            )
+                    else:
+                        st.error(
+                            "❌ Stream URL resolved but could not be opened by OpenCV. Try another URL."
+                        )
                 else:
                     st.error("❌ Failed to extract YouTube stream URL.")
+
+    # If stream is loaded but not running, show preview and start button
+    if st.session_state.realtime_ready and not st.session_state.realtime_running:
+        st.markdown(f"### 📡 Stream Loaded - {st.session_state.source_name}")
+        if st.session_state.realtime_preview_image:
+            st.image(
+                st.session_state.realtime_preview_image,
+                caption="Preview frame",
+                use_container_width=True,
+            )
+        start_det = st.button(
+            "▶️ Start Detection", type="primary", use_container_width=True
+        )
+        if start_det:
+            st.session_state.realtime_running = True
+            st.session_state.realtime_ready = False
+            st.rerun()
 
     # Realtime processing
     if st.session_state.realtime_running:
@@ -627,6 +721,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         # Stop button
         if st.button("⏹️ Stop Detection", type="primary", use_container_width=True):
             st.session_state.realtime_running = False
+            st.session_state.realtime_ready = False
             # DON'T clear error - let user see it before clicking "Clear Error & Retry"
             st.rerun()
 
