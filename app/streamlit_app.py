@@ -678,7 +678,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     # - Live news feeds
 
     youtube_url = st.text_input(
-        "YouTube URL (Optional)",
+        "YouTube URL",
         value=default_url,
         help="Enter YouTube video or livestream URL (prefer public traffic cameras or regular videos)",
     )
@@ -742,10 +742,31 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
     # Handle start buttons
     if webcam_button:
-        st.session_state.realtime_running = True
-        st.session_state.video_source = 0
-        st.session_state.source_name = "Webcam"
-        st.rerun()
+        with st.spinner("🔄 Probing webcam..."):
+            cap_probe = open_capture(0)
+            if cap_probe.isOpened():
+                ret_probe, frame_probe = cap_probe.read()
+                if ret_probe and frame_probe is not None:
+                    try:
+                        ok, buf = cv2.imencode(".png", frame_probe)
+                        if ok:
+                            st.session_state.realtime_preview_image = buf.tobytes()
+                    except Exception:
+                        st.session_state.realtime_preview_image = None
+                    st.session_state.realtime_ready = True
+                    st.session_state.realtime_running = False
+                    st.session_state.video_source = 0
+                    st.session_state.source_name = "Webcam"
+                    st.session_state.youtube_url = ""
+                    st.session_state.last_url_refresh = time.time()
+                    cap_probe.release()
+                    st.success("✅ Webcam ready. Click Start Detection to begin.")
+                    st.rerun()
+                else:
+                    cap_probe.release()
+                    st.error("❌ Webcam opened but no frame could be read.")
+            else:
+                st.error("❌ Could not open webcam.")
 
     if youtube_button:
         if not youtube_url:
