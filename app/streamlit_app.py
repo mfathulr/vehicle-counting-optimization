@@ -532,8 +532,6 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.session_state.realtime_ready = False
     if "realtime_preview_image" not in st.session_state:
         st.session_state.realtime_preview_image = None
-    if "direct_stream_input" not in st.session_state:
-        st.session_state.direct_stream_input = ""
     if "youtube_cookies_path" not in st.session_state:
         st.session_state.youtube_cookies_path = ""
 
@@ -672,14 +670,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     # YouTube stream as default
     st.markdown("### 🎬 YouTube Video Stream")
 
-    # Default YouTube URL - using a stable public traffic camera livestream
-    # Initialize session state for direct URL if not exists
-    if "demo_direct_url" not in st.session_state:
-        st.session_state.demo_direct_url = ""
-
-    # Using a well-known public livestream that's accessible globally
-    # Option: BBC News 24/7 or public traffic camera
-    default_url = ""  # Leave empty to avoid bot detection on cloud
+    # Default YouTube URL - leave empty to avoid bot detection on cloud
+    default_url = ""
     # Alternative options you can try:
     # - Any unlisted/public YouTube video
     # - Public traffic camera livestreams
@@ -704,25 +696,6 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             st.success("Cookies loaded for this session (local use only).")
         elif st.session_state.youtube_cookies_path:
             st.caption("Using uploaded cookies.txt for YouTube extraction.")
-
-    # Direct stream URL (HLS .m3u8 or MP4) to bypass yt-dlp/Streamlink in cloud
-    st.info(
-        "💡 **Recommended for Cloud**: Use Direct Stream URL to avoid YouTube bot detection issues"
-    )
-
-    # Quick test button for demo stream
-    if st.button("🎬 Use Demo Stream (Public Test)", use_container_width=True):
-        st.session_state.direct_stream_input = (
-            "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-        )
-        st.rerun()
-
-    direct_url = st.text_input(
-        "Direct Stream URL (HLS/MP4)",
-        key="direct_stream_input",
-        placeholder="e.g. https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-        help="Paste a direct .m3u8 (HLS) or .mp4 URL. Works reliably in cloud without authentication.",
-    )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -776,41 +749,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
     if youtube_button:
         if not youtube_url:
-            # If YouTube empty, try direct URL
-            if direct_url:
-                with st.spinner("🔄 Probing direct stream URL..."):
-                    cap_probe = open_capture(direct_url)
-                    if cap_probe.isOpened():
-                        ret_probe, frame_probe = cap_probe.read()
-                        if ret_probe and frame_probe is not None:
-                            try:
-                                ok, buf = cv2.imencode(".png", frame_probe)
-                                if ok:
-                                    st.session_state.realtime_preview_image = (
-                                        buf.tobytes()
-                                    )
-                            except Exception:
-                                st.session_state.realtime_preview_image = None
-                            st.session_state.realtime_ready = True
-                            st.session_state.realtime_running = False
-                            st.session_state.video_source = direct_url
-                            st.session_state.source_name = "Direct Stream"
-                            st.session_state.youtube_url = ""
-                            st.session_state.last_url_refresh = time.time()
-                            cap_probe.release()
-                            st.success(
-                                "✅ Direct stream loaded. Click Start Detection to begin."
-                            )
-                            st.rerun()
-                        else:
-                            cap_probe.release()
-                            st.error(
-                                "❌ Direct stream opened but no frame could be read."
-                            )
-                    else:
-                        st.error("❌ Could not open direct stream URL.")
-            else:
-                st.error("❌ Please enter a YouTube or Direct Stream URL.")
+            st.error("❌ Please enter a YouTube URL.")
         else:
             with st.spinner("🔄 Resolving and probing stream..."):
                 stream_url = ""
