@@ -714,7 +714,12 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             "📡 Load Stream", type="primary", use_container_width=True
         )
     with col2:
-        webcam_button = st.button("📹 Use Webcam Instead", use_container_width=True)
+        # Webcam only available locally, not on cloud
+        if is_cloud:
+            st.button("📹 Use Webcam Instead", use_container_width=True, disabled=True)
+            st.caption("Webcam only available locally")
+        else:
+            webcam_button = st.button("📹 Use Webcam Instead", use_container_width=True)
 
     st.markdown("---")
 
@@ -752,7 +757,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Handle start buttons
-    if webcam_button:
+    # Only check webcam_button if not in cloud (when button is enabled)
+    if not is_cloud and webcam_button:
         with st.spinner("🔄 Probing webcam..."):
             cap_probe = open_capture(0)
             if cap_probe.isOpened():
@@ -964,7 +970,6 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             cap_obj.release()
                     # Final fallback (unverified)
                     return cv2.VideoCapture(source)
-
 
             # Open video capture
             if st.session_state.debug_realtime:
