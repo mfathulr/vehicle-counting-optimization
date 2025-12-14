@@ -640,6 +640,19 @@ def main():
             )
         st.markdown("</div>", unsafe_allow_html=True)
 
+        # Location card
+        st.markdown("<div class='sidebar-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='sidebar-label'>📍 Optimized For</div>", unsafe_allow_html=True
+        )
+        st.markdown("**Location:** Simpang Pingit 1 (Selatan)", unsafe_allow_html=True)
+        st.markdown("**Source:** Jogja City CCTV", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='sidebar-help'>Model trained specifically for this intersection's camera angle and traffic patterns.</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
         # Info card
         st.markdown("<div class='sidebar-card'>", unsafe_allow_html=True)
         st.markdown(
