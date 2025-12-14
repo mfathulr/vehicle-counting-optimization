@@ -834,6 +834,14 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             if st.session_state.debug_realtime:
                 st.error(f"Detailed trace:\n{st.session_state.realtime_error}")
             st.error(f"❌ Realtime loop failed. Check error above or enable debug logs.")
+        except Exception as rt_error:
+            st.session_state.realtime_running = False
+            st.session_state.realtime_error = f"{type(rt_error).__name__}: {str(rt_error)}"
+            import traceback
+            st.session_state.realtime_error += f"\n\nTraceback:\n{traceback.format_exc()}"
+            if st.session_state.debug_realtime:
+                st.error(f"Detailed trace:\n{st.session_state.realtime_error}")
+            st.error(f"❌ Realtime loop failed. Check error above or enable debug logs.")
     else:
         st.info("👆 Select a source above to start realtime detection.")
 
