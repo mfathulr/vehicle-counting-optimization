@@ -197,7 +197,7 @@ def load_model(device: str) -> torch.nn.Module:
 
 
 def get_youtube_stream_url(youtube_url: str) -> str:
-    """Extract direct stream URL from YouTube video/livestream."""
+    """Extract direct stream URL from YouTube video/livestream with retry fallback."""
     try:
         import yt_dlp
     except ImportError:
@@ -206,78 +206,93 @@ def get_youtube_stream_url(youtube_url: str) -> str:
         )
         return ""
 
-    try:
-        ydl_opts = {
-            "format": "best[ext=mp4][height<=480]/best[height<=480]/best",
-            "quiet": True,
-            "no_warnings": False,
-            "extract_flat": False,
-            # Prefer native HLS handling and bypass minor geo restrictions
-            "hls_prefer_native": True,
-            "geo_bypass": True,
-            "noplaylist": True,
-            "live_from_start": False,
-            # Avoid JS runtime requirement by preferring Android/Web clients
-            "compat_opts": ["no-ejs"],
-            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-        }
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            ydl_opts = {
+                "format": "best[ext=mp4][height<=480]/best[height<=480]/best[height<=720]/best",
+                "quiet": True,
+                "no_warnings": False,
+                "extract_flat": False,
+                # Prefer native HLS handling and bypass minor geo restrictions
+                "hls_prefer_native": True,
+                "geo_bypass": True,
+                "geo_bypass_country": "US",
+                "noplaylist": True,
+                "live_from_start": False,
+                # Try multiple player clients for compatibility
+                "compat_opts": ["no-ejs", "no-youtube-prefer-utc-upload-date"],
+                "extractor_args": {"youtube": {"player_client": ["android", "web", "mweb"]}},
+                "http_headers": {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+                "socket_timeout": 30,
+            }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=False)
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
 
-            # Handle playlists
-            if "entries" in info:
-                if not info["entries"]:
-                    st.error("❌ Playlist is empty or unavailable.")
-                    return ""
-                info = info["entries"][0]
+                # Handle playlists
+                if "entries" in info:
+                    if not info["entries"]:
+                        st.error("❌ Playlist is empty or unavailable.")
+                        return ""
+                    info = info["entries"][0]
 
-            # Check if it's a live stream that's not currently live
-            if (not info.get("is_live")) and info.get("was_live"):
-                st.warning(
-                    "⚠️ This is a past livestream. Some streams may not be available."
+                # Check if it's a live stream that's not currently live
+                if (not info.get("is_live")) and info.get("was_live"):
+                    st.warning(
+                        "⚠️ This is a past livestream. Some streams may not be available."
+                    )
+
+                # Try to get direct URL
+                if "url" in info:
+                    return info["url"]
+
+                # Search through formats (prioritize HLS/DASH)
+                if "formats" in info:
+                    # Prefer HLS M3U8 that OpenCV can read natively
+                    for fmt in info["formats"]:
+                        if fmt.get("url") and fmt.get("protocol") in [
+                            "m3u8",
+                            "m3u8_native",
+                        ]:
+                            return fmt["url"]
+                    # Fallback to MP4/WebM formats
+                    for fmt in info["formats"]:
+                        if (
+                            fmt.get("url")
+                            and fmt.get("ext") in ["mp4", "webm"]
+                            and fmt.get("vcodec") != "none"
+                        ):
+                            return fmt["url"]
+
+                st.error("❌ No compatible video format found. Try a different video.")
+                return ""
+        except Exception as e:
+            error_msg = str(e)
+            # Log attempt for debugging
+            if st.session_state.debug_realtime:
+                st.warning(f"Extraction attempt {attempt + 1}/{max_retries} failed: {error_msg}")
+            # Retry once more if it's a temporary error
+            if attempt < max_retries - 1 and ("technical" in error_msg.lower() or "timeout" in error_msg.lower()):
+                time.sleep(2)
+                continue
+            # Final error handling
+            if "not available" in error_msg.lower():
+                st.error("❌ This video/stream is not available. Please try:")
+                st.info(
+                    "💡 Use a regular YouTube video (not expired livestream)\n💡 Check if video is public and playable\n💡 Try a different traffic camera or livestream"
                 )
-
-            # Try to get direct URL
-            if "url" in info:
-                return info["url"]
-
-            # Search through formats
-            if "formats" in info:
-                # Prefer MP4 HLS or DASH that OpenCV can read
-                for fmt in info["formats"]:
-                    if fmt.get("url") and fmt.get("protocol") in [
-                        "m3u8",
-                        "m3u8_native",
-                    ]:
-                        return fmt["url"]
-                for fmt in info["formats"]:
-                    if (
-                        fmt.get("url")
-                        and fmt.get("ext") in ["mp4", "webm"]
-                        and fmt.get("vcodec") != "none"
-                    ):
-                        return fmt["url"]
-
-            st.error("❌ No compatible video format found. Try a different video.")
+            elif "javascript" in error_msg.lower() or "js" in error_msg.lower():
+                st.warning(
+                    "⚠️ This stream requires JS extraction. Try a simpler video or a public livestream with direct HLS access."
+                )
+            else:
+                st.error(f"❌ Error: {error_msg}")
             return ""
-    except Exception as e:
-        error_msg = str(e)
-        if "not available" in error_msg.lower():
-            st.error("❌ This video/stream is not available. Please try:")
-            st.info(
-                "💡 Use a regular YouTube video (not expired livestream)\n💡 Check if the video is public and playable"
-            )
-        elif "javascript" in error_msg.lower() or "js" in error_msg.lower():
-            st.warning(
-                "⚠️ yt-dlp needs a JS runtime for this stream. Install Node.js or Deno on the server for better reliability."
-            )
-        else:
-            st.error(f"❌ Error: {error_msg}")
+    return ""
             if "hls" in error_msg.lower() or "segment" in error_msg.lower():
                 st.info(
                     "💡 Tip: Some YouTube livestreams block HLS segment access on cloud servers. Try a different video or enable debug logs to inspect backend."
@@ -498,15 +513,21 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             if st.session_state.realtime_error_time
             else 0
         )
+        # Display error prominently
+        st.markdown("## ❌ Realtime Detection Failed")
         st.error(
-            f"❌ Realtime Error (age: {error_age:.1f}s):\n```\n{st.session_state.realtime_error}\n```"
+            f"**Error (occurred {error_age:.1f}s ago):**\n```\n{st.session_state.realtime_error}\n```"
         )
         st.info(
-            "⚠️ Please resolve the error before retrying. Check your:\n- YouTube URL validity\n- Network connection\n- Camera/webcam permissions\n- Device memory and resources"
+            "**Troubleshooting checklist:**\n\n"
+            "✓ For YouTube: Try a different public traffic camera or regular video\n"
+            "✓ Check your internet connection and firewall\n"
+            "✓ For webcam: Ensure camera is connected and permissions are granted\n"
+            "✓ Enable '🔍 Enable realtime debug logs' to see backend details"
         )
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔄 Clear Error & Retry", key="clear_error_btn"):
+            if st.button("🔄 Clear Error & Try Again", key="clear_error_btn"):
                 st.session_state.realtime_error = None
                 st.session_state.realtime_error_time = None
                 st.session_state.realtime_running = False
@@ -525,8 +546,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
     # Check if running in Streamlit Cloud and warn about resource constraints
     is_cloud = (
-        "STREAMLIT_SERVER_HEADLESS" in os.environ
-        or "streamlit" in sys.modules[__name__].__file__.lower()
+        "STREAMLIT_SERVER_HEADLESS" in os.environ or "STREAMLIT_RUNTIME" in os.environ
     )
     if is_cloud and device == "cpu":
         st.info(
@@ -538,13 +558,14 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     # YouTube stream as default
     st.markdown("### 🎬 YouTube Video Stream")
 
-    # Default YouTube URL - menggunakan video traffic yang reliabel dan publik
-    default_url = "https://www.youtube.com/watch?v=L94pFD8Jd08"
+    # Default YouTube URL - using a stable public traffic camera livestream
+    # Option 1: CCTV traffic camera (more reliable for testing)
+    default_url = "https://www.youtube.com/watch?v=cYt0zb1F3U8"  # Sample public traffic camera
 
     youtube_url = st.text_input(
         "YouTube URL",
         value=default_url,
-        help="Enter YouTube video or livestream URL",
+        help="Enter YouTube video or livestream URL (prefer public traffic cameras or regular videos)",
     )
 
     col1, col2 = st.columns(2)
@@ -640,10 +661,18 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 """Open video capture with fallback backends for URL streams."""
                 if isinstance(source, str):
                     # For URLs, try multiple backends with fallback
-                    backends_to_try = [
-                        (cv2.CAP_FFMPEG, "FFMPEG"),
-                        (cv2.CAP_ANY, "ANY"),
-                    ]
+                    # In cloud/production, prefer CAP_ANY first due to limited ffmpeg
+                    backends_to_try = (
+                        [
+                            (cv2.CAP_ANY, "ANY"),
+                            (cv2.CAP_FFMPEG, "FFMPEG"),
+                        ]
+                        if is_cloud
+                        else [
+                            (cv2.CAP_FFMPEG, "FFMPEG"),
+                            (cv2.CAP_ANY, "ANY"),
+                        ]
+                    )
                     cap_obj = None
                     for backend, name in backends_to_try:
                         try:
@@ -665,7 +694,30 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                                 st.warning(f"Backend {name} failed: {e}")
                             continue
 
-                    # If all backends fail, return last attempt with CAP_ANY
+                    # If all backends fail, try Streamlink fallback (production only)
+                    if is_cloud:
+                        try:
+                            import streamlink
+
+                            session = streamlink.Streamlink()
+                            streams = session.streams(source)
+                            # Prefer 'best' stream
+                            best = (
+                                streams.get("best")
+                                or streams.get("720p")
+                                or streams.get("480p")
+                            )
+                            if best:
+                                url = best.to_url()
+                                if st.session_state.debug_realtime:
+                                    st.info("🧪 Streamlink fallback URL acquired")
+                                cap_obj = cv2.VideoCapture(url, cv2.CAP_ANY)
+                                if cap_obj.isOpened():
+                                    return cap_obj
+                        except Exception as e:
+                            if st.session_state.debug_realtime:
+                                st.warning(f"Streamlink fallback failed: {e}")
+                    # Final fallback
                     return cv2.VideoCapture(source, cv2.CAP_ANY)
                 else:
                     # Webcam
@@ -689,23 +741,15 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
             if not cap.isOpened():
                 if st.session_state.source_name == "Webcam":
-                    st.error(
-                        "❌ Webcam not available. Check camera permissions, index value, or connect a camera."
-                    )
+                    err_msg = "❌ Webcam not available. Check camera permissions, index value, or connect a camera."
                 else:
-                    st.error(f"❌ Could not open {st.session_state.source_name}.")
-                    if isinstance(st.session_state.video_source, str):
-                        st.info(
-                            "💡 Stream may be region-restricted or require a different format. Try a different YouTube video."
-                        )
-                if st.session_state.debug_realtime and isinstance(
-                    st.session_state.video_source, str
-                ):
-                    st.warning(
-                        "🔎 Hint: If running in Streamlit Cloud, the HLS URL may be region-locked or require JS runtime extraction."
-                    )
+                    err_msg = f"❌ Could not open {st.session_state.source_name}. Stream may be region-restricted, expired, or require a different format. Try a different YouTube video or check your network."
+                # Store error in session state (will be displayed by banner on next rerun)
+                st.session_state.realtime_error = err_msg
+                st.session_state.realtime_error_time = time.time()
                 st.session_state.realtime_running = False
-                st.rerun()
+                # Stop immediately - error will be shown by banner on next rerun
+                st.stop()
 
             # Set properties for webcam
             if st.session_state.video_source == 0:
@@ -720,7 +764,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             last_counts = {"mobil": 0, "motor": 0}
             retry_count = 0
             max_retries = 3
-            url_refresh_interval = 300  # 5 minutes
+            # In production, refresh URLs more aggressively (1–2 minutes)
+            url_refresh_interval = 120 if is_cloud else 300
 
             # Processing loop
             while st.session_state.realtime_running:
@@ -790,10 +835,12 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                                 cap = open_capture(st.session_state.video_source)
                                 continue
                         else:
-                            st.error(
-                                f"❌ Stream ended or connection lost after {max_retries} retries."
-                            )
-                            break
+                            err_msg = f"❌ Stream ended or connection lost after {max_retries} retries."
+                            st.error(err_msg)
+                            st.session_state.realtime_error = err_msg
+                            st.session_state.realtime_error_time = time.time()
+                            st.session_state.realtime_running = False
+                            st.stop()
 
                     frame_count += 1
 
@@ -952,6 +999,13 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 st.session_state.realtime_running = False
                 st.rerun()
 
+            # Retry same source without clearing error
+            if st.session_state.video_source and st.button(
+                "🔁 Retry Same Source", key="retry_same_source_btn"
+            ):
+                st.session_state.realtime_running = True
+                st.rerun()
+
     else:
         st.info("👆 Select a source above to start realtime detection.")
 
@@ -1002,13 +1056,25 @@ def main():
 
         col_dev, col_thr = st.columns([1, 1])
         with col_dev:
+            # Auto-fallback to CPU if CUDA not available in production
+            cuda_available = False
+            try:
+                import torch
+
+                cuda_available = torch.cuda.is_available()
+            except Exception:
+                cuda_available = False
+
             device = st.radio(
                 "Device",
                 ("cpu", "cuda"),
-                index=0,
+                index=0 if not cuda_available else 1,
                 label_visibility="collapsed",
                 help="CUDA requires an NVIDIA GPU",
             )
+            if device == "cuda" and not cuda_available:
+                st.warning("CUDA not available. Falling back to CPU.")
+                device = "cpu"
         with col_thr:
             threshold = st.slider(
                 "Threshold",
