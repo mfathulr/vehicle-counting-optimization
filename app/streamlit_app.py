@@ -293,27 +293,6 @@ def get_youtube_stream_url(youtube_url: str) -> str:
                 st.error(f"❌ Error: {error_msg}")
             return ""
     return ""
-            if "hls" in error_msg.lower() or "segment" in error_msg.lower():
-                st.info(
-                    "💡 Tip: Some YouTube livestreams block HLS segment access on cloud servers. Try a different video or enable debug logs to inspect backend."
-                )
-            # Try Streamlink fallback to resolve a playable URL
-            try:
-                import subprocess
-
-                proc = subprocess.run(
-                    ["streamlink", "--stream-url", youtube_url, "best"],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-                if proc.returncode == 0 and proc.stdout:
-                    url = proc.stdout.strip()
-                    st.info("✅ Streamlink fallback resolved a URL")
-                    return url
-            except Exception as se:
-                st.warning(f"⚠️ Streamlink fallback failed: {se}")
-        return ""
 
 
 def upload_mode(image_detector, video_detector, optimizer, device, threshold):
