@@ -682,11 +682,24 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     )
 
     # Direct stream URL (HLS .m3u8 or MP4) to bypass yt-dlp/Streamlink in cloud
+    st.info("💡 **Recommended for Cloud**: Use Direct Stream URL to avoid YouTube bot detection issues")
     direct_url = st.text_input(
         "Direct Stream URL (HLS/MP4)",
         value="",
-        help="Paste a direct video URL like https://.../index.m3u8 or https://.../video.mp4 to bypass yt-dlp",
+        placeholder="e.g. https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8",
+        help="Paste a direct .m3u8 (HLS) or .mp4 URL. Works reliably in cloud without authentication.",
     )
+    
+    # Quick test button for demo stream
+    if st.button("🎬 Use Demo Stream (Public Test)", use_container_width=True):
+        direct_url = "https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8"
+        st.session_state.direct_url_input = direct_url
+        st.rerun()
+    
+    # Restore direct_url from session state if set
+    if "direct_url_input" in st.session_state and st.session_state.direct_url_input:
+        direct_url = st.session_state.direct_url_input
+        st.session_state.direct_url_input = ""  # Clear after use
 
     col1, col2 = st.columns(2)
     with col1:
