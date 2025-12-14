@@ -7,6 +7,7 @@ import torch
 import streamlit as st
 from PIL import Image
 from pathlib import Path
+from typing import Optional
 import cv2
 import numpy as np
 import tempfile
@@ -199,7 +200,7 @@ def load_model(device: str) -> torch.nn.Module:
     return model
 
 
-def get_youtube_stream_url(youtube_url: str) -> str:
+def get_youtube_stream_url(youtube_url: str, cookies_path: Optional[str] = None) -> str:
     """Extract direct stream URL from YouTube video/livestream with retry fallback."""
     try:
         import yt_dlp
@@ -239,6 +240,9 @@ def get_youtube_stream_url(youtube_url: str) -> str:
                 },
                 "socket_timeout": 30,
             }
+
+            if cookies_path:
+                ydl_opts["cookiefile"] = cookies_path
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=False)
@@ -528,6 +532,10 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.session_state.realtime_ready = False
     if "realtime_preview_image" not in st.session_state:
         st.session_state.realtime_preview_image = None
+    if "direct_stream_input" not in st.session_state:
+        st.session_state.direct_stream_input = ""
+    if "youtube_cookies_path" not in st.session_state:
+        st.session_state.youtube_cookies_path = ""
 
     # Define capture opener early so it can be used for probing before detection starts
     def open_capture(source):
@@ -683,6 +691,20 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         help="Enter YouTube video or livestream URL (prefer public traffic cameras or regular videos)",
     )
 
+    # Optional: upload YouTube cookies.txt (local use only; stored temporarily)
+    cookies_upload = st.file_uploader(
+        "YouTube cookies.txt (optional)",
+        type=["txt"],
+        help="Export Netscape cookies.txt from incognito YouTube session, then upload to bypass bot checks.",
+    )
+    if cookies_upload:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+            tmp.write(cookies_upload.getbuffer())
+            st.session_state.youtube_cookies_path = tmp.name
+        st.success("Cookies loaded for this session (local use only).")
+    elif st.session_state.youtube_cookies_path:
+        st.caption("Using uploaded cookies.txt for YouTube extraction.")
+
     # Direct stream URL (HLS .m3u8 or MP4) to bypass yt-dlp/Streamlink in cloud
     st.info(
         "💡 **Recommended for Cloud**: Use Direct Stream URL to avoid YouTube bot detection issues"
@@ -795,7 +817,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 if st.session_state.force_streamlink:
                     stream_url = get_streamlink_url(youtube_url)
                 if not stream_url:
-                    stream_url = get_youtube_stream_url(youtube_url)
+                    stream_url = get_youtube_stream_url(
+                        youtube_url, st.session_state.youtube_cookies_path or None
+                    )
                 if not stream_url and not st.session_state.force_streamlink:
                     # Fallback: try Streamlink if yt-dlp failed
                     stream_url = get_streamlink_url(youtube_url)
@@ -1007,7 +1031,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                         if time_since_refresh > url_refresh_interval:
                             status_display.info("🔄 Refreshing stream URL...")
                             new_stream_url = get_youtube_stream_url(
-                                st.session_state.youtube_url
+                                st.session_state.youtube_url,
+                                st.session_state.youtube_cookies_path or None,
                             )
                             if new_stream_url:
                                 cap.release()
@@ -1043,7 +1068,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             # Try to re-extract fresh URL
                             if st.session_state.youtube_url:
                                 new_stream_url = get_youtube_stream_url(
-                                    st.session_state.youtube_url
+                                    st.session_state.youtube_url,
+                                    st.session_state.youtube_cookies_path or None,
                                 )
                                 if new_stream_url:
                                     st.session_state.video_source = new_stream_url
