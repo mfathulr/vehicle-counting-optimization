@@ -493,9 +493,17 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     # CRITICAL: Show any stored errors BEFORE everything else
     # Use st.stop() to halt rendering if error exists
     if st.session_state.realtime_error:
-        error_age = time.time() - st.session_state.realtime_error_time if st.session_state.realtime_error_time else 0
-        st.error(f"❌ Realtime Error (age: {error_age:.1f}s):\n```\n{st.session_state.realtime_error}\n```")
-        st.info("⚠️ Please resolve the error before retrying. Check your:\n- YouTube URL validity\n- Network connection\n- Camera/webcam permissions\n- Device memory and resources")
+        error_age = (
+            time.time() - st.session_state.realtime_error_time
+            if st.session_state.realtime_error_time
+            else 0
+        )
+        st.error(
+            f"❌ Realtime Error (age: {error_age:.1f}s):\n```\n{st.session_state.realtime_error}\n```"
+        )
+        st.info(
+            "⚠️ Please resolve the error before retrying. Check your:\n- YouTube URL validity\n- Network connection\n- Camera/webcam permissions\n- Device memory and resources"
+        )
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔄 Clear Error & Retry", key="clear_error_btn"):
@@ -835,8 +843,10 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             ):
                                 st.session_state.realtime_running = False
                                 st.session_state.realtime_error = f"GPU Memory Error: {str(mem_error)}\n\nTry: Use CPU instead of CUDA, or reduce resolution"
+                                st.session_state.realtime_error_time = time.time()
                                 cap.release()
-                                st.rerun()
+                                # Do NOT rerun automatically; keep error visible
+                                st.stop()
                             else:
                                 raise
                         except Exception as detect_error:
@@ -849,7 +859,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             if st.session_state.debug_realtime:
                                 st.warning(f"Detection failed: {detect_error}")
                             cap.release()
-                            st.rerun()  # Force rerun to display error
+                            # Do NOT rerun automatically; keep error visible
+                            st.stop()
 
                     # Calculate FPS
                     current_time = time.time()
@@ -909,7 +920,8 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                     st.session_state.realtime_error = f"Loop Error: {type(loop_error).__name__}: {str(loop_error)}\n\nTraceback:\n{error_trace}"
                     st.session_state.realtime_error_time = time.time()
                     cap.release()
-                    st.rerun()  # Force rerun to display error
+                    # Do NOT rerun automatically; keep error visible
+                    st.stop()
 
             cap.release()
             st.session_state.realtime_running = False
