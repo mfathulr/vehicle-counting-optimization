@@ -392,7 +392,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     st.markdown("### 🎬 YouTube Video Stream")
 
     # Default YouTube URL - menggunakan video traffic yang reliabel dan publik
-    default_url = "https://www.youtube.com/watch?v=MNn9qKG2UFI"
+    default_url = "https://www.youtube.com/watch?v=L94pFD8Jd08"
 
     youtube_url = st.text_input(
         "YouTube URL",
