@@ -212,6 +212,11 @@ def get_youtube_stream_url(youtube_url: str) -> str:
             "quiet": True,
             "no_warnings": False,
             "extract_flat": False,
+            # Prefer native HLS handling and bypass minor geo restrictions
+            "hls_prefer_native": True,
+            "geo_bypass": True,
+            "noplaylist": True,
+            "live_from_start": False,
             # Avoid JS runtime requirement by preferring Android/Web clients
             "compat_opts": ["no-ejs"],
             "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
@@ -243,12 +248,12 @@ def get_youtube_stream_url(youtube_url: str) -> str:
 
             # Search through formats
             if "formats" in info:
+                # Prefer MP4 HLS or DASH that OpenCV can read
                 for fmt in info["formats"]:
-                    if (
-                        fmt.get("vcodec") != "none"
-                        and fmt.get("url")
-                        and fmt.get("ext") in ["mp4", "webm"]
-                    ):
+                    if fmt.get("url") and fmt.get("protocol") in ["m3u8", "m3u8_native"]:
+                        return fmt["url"]
+                for fmt in info["formats"]:
+                    if fmt.get("url") and fmt.get("ext") in ["mp4", "webm"] and fmt.get("vcodec") != "none":
                         return fmt["url"]
 
             st.error("❌ No compatible video format found. Try a different video.")
@@ -266,6 +271,8 @@ def get_youtube_stream_url(youtube_url: str) -> str:
             )
         else:
             st.error(f"❌ Error: {error_msg}")
+            if "hls" in error_msg.lower() or "segment" in error_msg.lower():
+                st.info("💡 Tip: Some YouTube livestreams block HLS segment access on cloud servers. Try a different video or enable debug logs to inspect backend.")
         return ""
 
 
@@ -456,7 +463,11 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     if "last_url_refresh" not in st.session_state:
         st.session_state.last_url_refresh = 0
     if "debug_realtime" not in st.session_state:
-        st.session_state.debug_realtime = st.checkbox("🔍 Enable realtime debug logs", value=False, help="Show backend, URL, and capture status for troubleshooting in production")
+        st.session_state.debug_realtime = st.checkbox(
+            "🔍 Enable realtime debug logs",
+            value=False,
+            help="Show backend, URL, and capture status for troubleshooting in production",
+        )
 
     # Handle start buttons
     if webcam_button:
@@ -570,8 +581,12 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                     st.info(
                         "💡 Stream may be region-restricted or require a different format. Try a different YouTube video."
                     )
-            if st.session_state.debug_realtime and isinstance(st.session_state.video_source, str):
-                st.warning("🔎 Hint: If running in Streamlit Cloud, the HLS URL may be region-locked or require JS runtime extraction.")
+            if st.session_state.debug_realtime and isinstance(
+                st.session_state.video_source, str
+            ):
+                st.warning(
+                    "🔎 Hint: If running in Streamlit Cloud, the HLS URL may be region-locked or require JS runtime extraction."
+                )
             st.session_state.realtime_running = False
             st.rerun()
 
@@ -617,7 +632,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
             ret, frame = cap.read()
             if st.session_state.debug_realtime and frame is None:
-                st.warning("⚠️ Read returned no frame (None). Will retry/fallback if configured.")
+                st.warning(
+                    "⚠️ Read returned no frame (None). Will retry/fallback if configured."
+                )
 
             if not ret:
                 if (
@@ -640,7 +657,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             cap = open_capture(new_stream_url)
                             st.session_state.last_url_refresh = time.time()
                             if st.session_state.debug_realtime:
-                                st.info(f"🔁 Reconnected with new URL: {new_stream_url}")
+                                st.info(
+                                    f"🔁 Reconnected with new URL: {new_stream_url}"
+                                )
                             status_display.success("✅ Reconnected")
                             time.sleep(1)
                             status_display.empty()
