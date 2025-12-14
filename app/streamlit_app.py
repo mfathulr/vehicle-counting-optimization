@@ -691,14 +691,14 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     # Quick test button for demo stream
     if st.button("🎬 Use Demo Stream (Public Test)", use_container_width=True):
         st.session_state.direct_stream_input = (
-            "https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8"
+            "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
         )
         st.rerun()
 
     direct_url = st.text_input(
         "Direct Stream URL (HLS/MP4)",
         key="direct_stream_input",
-        placeholder="e.g. https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8",
+        placeholder="e.g. https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
         help="Paste a direct .m3u8 (HLS) or .mp4 URL. Works reliably in cloud without authentication.",
     )
 
