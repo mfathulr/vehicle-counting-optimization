@@ -295,7 +295,7 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
             display_placeholder.image(image, width="stretch", caption="Original")
 
             # Detection button
-            if st.button("🚀 Detect Vehicles", type="primary", width="stretch"):
+            if st.button("🚀 Detect Vehicles", type="primary", use_container_width=True):
                 with st.spinner("🔍 Detecting vehicles..."):
                     pred_image, boxes, scores, pred_classes = image_detector.detect(
                         image_np, threshold=threshold, show_progress=False
@@ -339,7 +339,7 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
             video_placeholder.video(temp_video_path)
 
             # Detection button
-            if st.button("🚀 Process Video", type="primary", width="stretch"):
+            if st.button("🚀 Process Video", type="primary", use_container_width=True):
                 st.markdown("---")
                 st.markdown("### 🎞️ Processing")
                 progress_bar = st.progress(0, text="🔄 Processing video...")
@@ -415,9 +415,9 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
     col1, col2 = st.columns(2)
     with col1:
-        youtube_button = st.button("▶️ Start Detection", type="primary", width="stretch")
+        youtube_button = st.button("▶️ Start Detection", type="primary", use_container_width=True)
     with col2:
-        webcam_button = st.button("📹 Use Webcam Instead", width="stretch")
+        webcam_button = st.button("📹 Use Webcam Instead", use_container_width=True)
 
     st.markdown("---")
 
@@ -480,7 +480,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.markdown(f"### 📡 Live Detection - {st.session_state.source_name}")
 
         # Stop button
-        if st.button("⏹️ Stop Detection", type="primary", width="stretch"):
+        if st.button("⏹️ Stop Detection", type="primary", use_container_width=True):
             st.session_state.realtime_running = False
             st.rerun()
 
