@@ -529,12 +529,21 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.session_state.youtube_url = ""
     if "last_url_refresh" not in st.session_state:
         st.session_state.last_url_refresh = 0
+    if "realtime_error" not in st.session_state:
+        st.session_state.realtime_error = None
     if "debug_realtime" not in st.session_state:
         st.session_state.debug_realtime = st.checkbox(
             "🔍 Enable realtime debug logs",
             value=False,
             help="Show backend, URL, and capture status for troubleshooting in production",
         )
+    
+    # Show any stored errors (persists across reruns)
+    if st.session_state.realtime_error:
+        st.error(f"❌ Realtime Error: {st.session_state.realtime_error}")
+        if st.button("🔄 Clear Error"):
+            st.session_state.realtime_error = None
+            st.rerun()
 
     # Handle start buttons
     if webcam_button:
@@ -566,9 +575,11 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         # Stop button
         if st.button("⏹️ Stop Detection", type="primary", use_container_width=True):
             st.session_state.realtime_running = False
+            st.session_state.realtime_error = None
             st.rerun()
 
-        # Create layout
+        # Wrap entire realtime processing in try-except
+        try:
         col1, col2 = st.columns([2, 1])
 
         with col1:
@@ -781,7 +792,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                     display_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 else:
                     display_rgb = display_frame
-                
+
                 try:
                     frame_holder.image(
                         display_rgb,
@@ -815,6 +826,14 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         st.success(
             f"✅ Session ended. Total: {frame_count} frames | Processed: {processed_count} frames"
         )
+        except Exception as rt_error:
+            st.session_state.realtime_running = False
+            st.session_state.realtime_error = f"{type(rt_error).__name__}: {str(rt_error)}"
+            import traceback
+            st.session_state.realtime_error += f"\n\nTraceback:\n{traceback.format_exc()}"
+            if st.session_state.debug_realtime:
+                st.error(f"Detailed trace:\n{st.session_state.realtime_error}")
+            st.error(f"❌ Realtime loop failed. Check error above or enable debug logs.")
     else:
         st.info("👆 Select a source above to start realtime detection.")
 
