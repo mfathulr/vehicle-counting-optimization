@@ -604,18 +604,29 @@ def realtime_mode(image_detector, optimizer, device, threshold):
             # Final fallback
             return cv2.VideoCapture(source, cv2.CAP_ANY)
         else:
-            # Webcam
+            # Webcam: try multiple backends and verify a frame can be read
             sys_name = platform.system()
             if sys_name == "Windows":
-                backend = cv2.CAP_DSHOW
+                backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
             elif sys_name == "Darwin":
-                backend = cv2.CAP_AVFOUNDATION
+                backends = [cv2.CAP_AVFOUNDATION, cv2.CAP_ANY]
             else:
-                backend = cv2.CAP_V4L2
-            cap_obj = cv2.VideoCapture(source, backend)
-            if st.session_state.get("debug_realtime"):
-                st.info(f"🎥 Webcam backend: {backend}")
-            return cap_obj
+                backends = [cv2.CAP_V4L2, cv2.CAP_ANY]
+
+            for backend in backends:
+                cap_obj = cv2.VideoCapture(source, backend)
+                if st.session_state.get("debug_realtime"):
+                    st.info(f"🎥 Trying webcam backend: {backend}")
+                if cap_obj.isOpened():
+                    ret, _ = cap_obj.read()
+                    if ret:
+                        cap_obj.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+                        if st.session_state.get("debug_realtime"):
+                            st.info(f"✅ Using webcam backend: {backend}")
+                        return cap_obj
+                    cap_obj.release()
+            # Final fallback (unverified)
+            return cv2.VideoCapture(source)
 
     # CRITICAL: Show any stored errors BEFORE everything else
     # Use st.stop() to halt rendering if error exists
@@ -868,7 +879,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                 duration_metric = st.empty()
 
             def open_capture(source):
-                """Open video capture with fallback backends for URL streams."""
+                """Open video capture with fallback backends for URL streams and webcam."""
                 if isinstance(source, str):
                     # For URLs, try multiple backends with fallback
                     # In cloud/production, prefer CAP_ANY first due to limited ffmpeg
@@ -929,6 +940,30 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                                 st.warning(f"Streamlink fallback failed: {e}")
                     # Final fallback
                     return cv2.VideoCapture(source, cv2.CAP_ANY)
+                else:
+                    # Webcam: try multiple backends and verify a frame can be read
+                    sys_name = platform.system()
+                    if sys_name == "Windows":
+                        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
+                    elif sys_name == "Darwin":
+                        backends = [cv2.CAP_AVFOUNDATION, cv2.CAP_ANY]
+                    else:
+                        backends = [cv2.CAP_V4L2, cv2.CAP_ANY]
+
+                    for backend in backends:
+                        cap_obj = cv2.VideoCapture(source, backend)
+                        if st.session_state.debug_realtime:
+                            st.info(f"🎥 Trying webcam backend: {backend}")
+                        if cap_obj.isOpened():
+                            ret, _ = cap_obj.read()
+                            if ret:
+                                cap_obj.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+                                if st.session_state.debug_realtime:
+                                    st.info(f"✅ Using webcam backend: {backend}")
+                                return cap_obj
+                            cap_obj.release()
+                    # Final fallback (unverified)
+                    return cv2.VideoCapture(source)
                 else:
                     # Webcam
                     sys_name = platform.system()
