@@ -185,7 +185,7 @@ def setup_page():
 def load_model(device: str) -> torch.nn.Module:
     """Load the trained Faster R-CNN model."""
     model = create_faster_rcnn_resnet18(num_classes=NUM_CLASSES)
-    checkpoint = torch.load(str(MODEL_PATH), map_location=device)
+    checkpoint = torch.load(str(MODEL_PATH), map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
     return model
 
