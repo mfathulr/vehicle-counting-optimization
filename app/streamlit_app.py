@@ -324,7 +324,9 @@ def upload_mode(image_detector, video_detector, optimizer, device, threshold):
             display_placeholder = st.empty()
             image = Image.open(uploaded_file)
             image_np = np.array(image)
-            display_placeholder.image(image, use_container_width=True, caption="Original")
+            display_placeholder.image(
+                image, use_container_width=True, caption="Original"
+            )
 
             # Detection button
             if st.button(
@@ -772,12 +774,24 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
             # Display frame
             display_frame = last_pred_image if last_pred_image is not None else frame
-            frame_holder.image(
-                display_frame,
-                channels="RGB",
-                caption=f"FPS: {fps:.1f}",
-                use_container_width=True,
-            )
+            # Ensure BGR to RGB conversion if needed
+            if display_frame is not None:
+                if len(display_frame.shape) == 3 and display_frame.shape[2] == 3:
+                    # Check if it needs BGR to RGB conversion
+                    display_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                else:
+                    display_rgb = display_frame
+                
+                try:
+                    frame_holder.image(
+                        display_rgb,
+                        channels="RGB",
+                        caption=f"FPS: {fps:.1f}",
+                        use_container_width=True,
+                    )
+                except Exception as e:
+                    if st.session_state.debug_realtime:
+                        st.warning(f"⚠️ Frame display error: {e}")
 
             # Update stats
             if status_display and not status_display._is_empty:
