@@ -493,22 +493,24 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     # CRITICAL: Show any stored errors BEFORE everything else
     # Use st.stop() to halt rendering if error exists
     if st.session_state.realtime_error:
-        st.error(f"❌ Realtime Error:\n```\n{st.session_state.realtime_error}\n```")
+        error_age = time.time() - st.session_state.realtime_error_time if st.session_state.realtime_error_time else 0
+        st.error(f"❌ Realtime Error (age: {error_age:.1f}s):\n```\n{st.session_state.realtime_error}\n```")
+        st.info("⚠️ Please resolve the error before retrying. Check your:\n- YouTube URL validity\n- Network connection\n- Camera/webcam permissions\n- Device memory and resources")
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔄 Clear Error & Retry", key="clear_error_btn"):
                 st.session_state.realtime_error = None
                 st.session_state.realtime_error_time = None
                 st.session_state.realtime_running = False
+                st.session_state.video_source = None
                 st.rerun()
         with col2:
             if st.button("🛑 Stop & Close", key="stop_realtime_btn"):
-                st.session_state.realtime_error = None
-                st.session_state.realtime_error_time = None
+                # DON'T clear error - only on explicit clear button
                 st.session_state.realtime_running = False
                 st.session_state.video_source = None
                 st.rerun()
-        st.stop()  # Stop rendering other UI elements
+        st.stop()  # Stop rendering other UI elements - keep error visible
 
     st.markdown("## 🎥 Realtime Mode")
     st.markdown("Live vehicle detection from YouTube stream.")
@@ -605,7 +607,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         # Stop button
         if st.button("⏹️ Stop Detection", type="primary", use_container_width=True):
             st.session_state.realtime_running = False
-            st.session_state.realtime_error = None
+            # DON'T clear error - let user see it before clicking "Clear Error & Retry"
             st.rerun()
 
         try:
@@ -1042,6 +1044,7 @@ def main():
             # Try to track memory usage, but don't fail if psutil not available
             try:
                 import psutil
+
                 process = psutil.Process()
                 mem_before = process.memory_info().rss / 1024 / 1024  # MB
                 has_psutil = True
