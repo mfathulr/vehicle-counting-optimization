@@ -16,7 +16,10 @@ import os
 
 # Suppress FFmpeg/OpenCV verbose warnings (TLS, H264 errors are normal for live streams)
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"  # Suppress most FFmpeg logs
-cv2.setLogLevel(0)  # Suppress OpenCV warnings
+try:
+    cv2.setLogLevel(0)  # Suppress OpenCV warnings (not available in all builds)
+except AttributeError:
+    pass  # setLogLevel not available in this OpenCV build
 
 # Add src to path
 import sys
@@ -526,6 +529,88 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     if "realtime_preview_image" not in st.session_state:
         st.session_state.realtime_preview_image = None
 
+    # Define capture opener early so it can be used for probing before detection starts
+    def open_capture(source):
+        """Open video capture with fallback backends for URL streams and platform-specific webcam."""
+        if isinstance(source, str):
+            # For URLs, try multiple backends with fallback
+            backends_to_try = (
+                [
+                    (cv2.CAP_ANY, "ANY"),
+                    (cv2.CAP_FFMPEG, "FFMPEG"),
+                ]
+                if (
+                    "STREAMLIT_SERVER_HEADLESS" in os.environ
+                    or "STREAMLIT_RUNTIME" in os.environ
+                )
+                else [
+                    (cv2.CAP_FFMPEG, "FFMPEG"),
+                    (cv2.CAP_ANY, "ANY"),
+                ]
+            )
+            cap_obj = None
+            for backend, name in backends_to_try:
+                try:
+                    cap_obj = cv2.VideoCapture(source, backend)
+                    if cap_obj.isOpened():
+                        # Test read
+                        ret, _ = cap_obj.read()
+                        if ret:
+                            cap_obj.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            cap_obj.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+                            if st.session_state.get("debug_realtime"):
+                                st.info(f"✅ Using backend: {name}")
+                            return cap_obj
+                        cap_obj.release()
+                except Exception as e:
+                    if cap_obj:
+                        cap_obj.release()
+                    if st.session_state.get("debug_realtime"):
+                        st.warning(f"Backend {name} failed: {e}")
+                    continue
+
+            # Try Streamlink fallback (cloud) to resolve playable URL
+            if (
+                "STREAMLIT_SERVER_HEADLESS" in os.environ
+                or "STREAMLIT_RUNTIME" in os.environ
+            ):
+                try:
+                    import streamlink
+
+                    session = streamlink.Streamlink()
+                    streams = session.streams(source)
+                    best = (
+                        streams.get("best")
+                        or streams.get("720p")
+                        or streams.get("480p")
+                    )
+                    if best:
+                        url = best.to_url()
+                        if st.session_state.get("debug_realtime"):
+                            st.info("🧪 Streamlink fallback URL acquired")
+                        cap_obj = cv2.VideoCapture(url, cv2.CAP_ANY)
+                        if cap_obj.isOpened():
+                            return cap_obj
+                except Exception as e:
+                    if st.session_state.get("debug_realtime"):
+                        st.warning(f"Streamlink fallback failed: {e}")
+
+            # Final fallback
+            return cv2.VideoCapture(source, cv2.CAP_ANY)
+        else:
+            # Webcam
+            sys_name = platform.system()
+            if sys_name == "Windows":
+                backend = cv2.CAP_DSHOW
+            elif sys_name == "Darwin":
+                backend = cv2.CAP_AVFOUNDATION
+            else:
+                backend = cv2.CAP_V4L2
+            cap_obj = cv2.VideoCapture(source, backend)
+            if st.session_state.get("debug_realtime"):
+                st.info(f"🎥 Webcam backend: {backend}")
+            return cap_obj
+
     # CRITICAL: Show any stored errors BEFORE everything else
     # Use st.stop() to halt rendering if error exists
     if st.session_state.realtime_error:
@@ -596,6 +681,13 @@ def realtime_mode(image_detector, optimizer, device, threshold):
         help="Enter YouTube video or livestream URL (prefer public traffic cameras or regular videos)",
     )
 
+    # Direct stream URL (HLS .m3u8 or MP4) to bypass yt-dlp/Streamlink in cloud
+    direct_url = st.text_input(
+        "Direct Stream URL (HLS/MP4)",
+        value="",
+        help="Paste a direct video URL like https://.../index.m3u8 or https://.../video.mp4 to bypass yt-dlp",
+    )
+
     col1, col2 = st.columns(2)
     with col1:
         youtube_button = st.button(
@@ -648,7 +740,41 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
     if youtube_button:
         if not youtube_url:
-            st.error("❌ Please enter a YouTube URL.")
+            # If YouTube empty, try direct URL
+            if direct_url:
+                with st.spinner("🔄 Probing direct stream URL..."):
+                    cap_probe = open_capture(direct_url)
+                    if cap_probe.isOpened():
+                        ret_probe, frame_probe = cap_probe.read()
+                        if ret_probe and frame_probe is not None:
+                            try:
+                                ok, buf = cv2.imencode(".png", frame_probe)
+                                if ok:
+                                    st.session_state.realtime_preview_image = (
+                                        buf.tobytes()
+                                    )
+                            except Exception:
+                                st.session_state.realtime_preview_image = None
+                            st.session_state.realtime_ready = True
+                            st.session_state.realtime_running = False
+                            st.session_state.video_source = direct_url
+                            st.session_state.source_name = "Direct Stream"
+                            st.session_state.youtube_url = ""
+                            st.session_state.last_url_refresh = time.time()
+                            cap_probe.release()
+                            st.success(
+                                "✅ Direct stream loaded. Click Start Detection to begin."
+                            )
+                            st.rerun()
+                        else:
+                            cap_probe.release()
+                            st.error(
+                                "❌ Direct stream opened but no frame could be read."
+                            )
+                    else:
+                        st.error("❌ Could not open direct stream URL.")
+            else:
+                st.error("❌ Please enter a YouTube or Direct Stream URL.")
         else:
             with st.spinner("🔄 Resolving and probing stream..."):
                 stream_url = ""
