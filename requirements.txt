@@ -1,6 +1,6 @@
 altair==5.4.1
 numpy>=2.1.0
-opencv-python>=4.10.0
+opencv-python-headless>=4.10.0
 pandas>=2.2.0
 pillow>=10.0.0
 protobuf>=4.20.0

@@ -1,0 +1,4 @@
+ffmpeg
+libavcodec-extra
+libsm6
+libxext6
