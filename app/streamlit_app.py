@@ -665,41 +665,40 @@ def realtime_mode(image_detector, optimizer, device, threshold):
     st.markdown("### 🎬 YouTube Video Stream")
 
     # Default YouTube URL - using a stable public traffic camera livestream
+    # Initialize session state for direct URL if not exists
+    if "demo_direct_url" not in st.session_state:
+        st.session_state.demo_direct_url = ""
+
     # Using a well-known public livestream that's accessible globally
     # Option: BBC News 24/7 or public traffic camera
-    default_url = (
-        "https://www.youtube.com/watch?v=9bZkp7q19f0"  # Public livestream (example)
-    )
+    default_url = ""  # Leave empty to avoid bot detection on cloud
     # Alternative options you can try:
     # - Any unlisted/public YouTube video
     # - Public traffic camera livestreams
     # - Live news feeds
 
     youtube_url = st.text_input(
-        "YouTube URL",
+        "YouTube URL (Optional)",
         value=default_url,
         help="Enter YouTube video or livestream URL (prefer public traffic cameras or regular videos)",
     )
 
     # Direct stream URL (HLS .m3u8 or MP4) to bypass yt-dlp/Streamlink in cloud
-    st.info("💡 **Recommended for Cloud**: Use Direct Stream URL to avoid YouTube bot detection issues")
-    direct_url = st.text_input(
-        "Direct Stream URL (HLS/MP4)",
-        value="",
-        placeholder="e.g. https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8",
-        help="Paste a direct .m3u8 (HLS) or .mp4 URL. Works reliably in cloud without authentication.",
+    st.info(
+        "💡 **Recommended for Cloud**: Use Direct Stream URL to avoid YouTube bot detection issues"
     )
     
     # Quick test button for demo stream
     if st.button("🎬 Use Demo Stream (Public Test)", use_container_width=True):
-        direct_url = "https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8"
-        st.session_state.direct_url_input = direct_url
+        st.session_state.demo_direct_url = "https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8"
         st.rerun()
     
-    # Restore direct_url from session state if set
-    if "direct_url_input" in st.session_state and st.session_state.direct_url_input:
-        direct_url = st.session_state.direct_url_input
-        st.session_state.direct_url_input = ""  # Clear after use
+    direct_url = st.text_input(
+        "Direct Stream URL (HLS/MP4)",
+        value=st.session_state.demo_direct_url,
+        placeholder="e.g. https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8",
+        help="Paste a direct .m3u8 (HLS) or .mp4 URL. Works reliably in cloud without authentication.",
+    )
 
     col1, col2 = st.columns(2)
     with col1:
