@@ -1033,23 +1033,29 @@ def main():
     # Load model with diagnostics
     with st.spinner("🔄 Loading model..."):
         try:
-            import psutil
-
-            process = psutil.Process()
-            mem_before = process.memory_info().rss / 1024 / 1024  # MB
+            # Try to track memory usage, but don't fail if psutil not available
+            try:
+                import psutil
+                process = psutil.Process()
+                mem_before = process.memory_info().rss / 1024 / 1024  # MB
+                has_psutil = True
+            except ImportError:
+                has_psutil = False
+                mem_before = 0
 
             model = load_model(device)
             image_detector = ImageDetector(model, device)
             video_detector = VideoDetector(model, device)
             optimizer = TrafficLightOptimizer()
 
-            mem_after = process.memory_info().rss / 1024 / 1024  # MB
-            mem_used = mem_after - mem_before
+            if has_psutil:
+                mem_after = process.memory_info().rss / 1024 / 1024  # MB
+                mem_used = mem_after - mem_before
 
-            if st.session_state.get("debug_realtime"):
-                st.info(
-                    f"💾 Memory used for model: {mem_used:.1f}MB | Total: {mem_after:.1f}MB"
-                )
+                if st.session_state.get("debug_realtime"):
+                    st.info(
+                        f"💾 Memory used for model: {mem_used:.1f}MB | Total: {mem_after:.1f}MB"
+                    )
 
         except RuntimeError as e:
             if "cuda" in str(e).lower():
