@@ -964,19 +964,7 @@ def realtime_mode(image_detector, optimizer, device, threshold):
                             cap_obj.release()
                     # Final fallback (unverified)
                     return cv2.VideoCapture(source)
-                else:
-                    # Webcam
-                    sys_name = platform.system()
-                    if sys_name == "Windows":
-                        backend = cv2.CAP_DSHOW
-                    elif sys_name == "Darwin":
-                        backend = cv2.CAP_AVFOUNDATION
-                    else:
-                        backend = cv2.CAP_V4L2
-                    cap_obj = cv2.VideoCapture(source, backend)
-                    if st.session_state.debug_realtime:
-                        st.info(f"🎥 Webcam backend: {backend}")
-                    return cap_obj
+
 
             # Open video capture
             if st.session_state.debug_realtime:
