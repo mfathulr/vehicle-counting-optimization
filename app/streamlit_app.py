@@ -698,158 +698,169 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
             # Processing loop
             while st.session_state.realtime_running:
-                # Check if we need to refresh YouTube URL (for livestreams)
-                if (
-                    st.session_state.source_name == "YouTube Stream"
-                    and st.session_state.youtube_url
-                ):
-                    time_since_refresh = time.time() - st.session_state.last_url_refresh
-                    if time_since_refresh > url_refresh_interval:
-                        status_display.info("🔄 Refreshing stream URL...")
-                        new_stream_url = get_youtube_stream_url(
-                            st.session_state.youtube_url
-                        )
-                        if new_stream_url:
-                            cap.release()
-                            st.session_state.video_source = new_stream_url
-                            cap = open_capture(new_stream_url)
-                            st.session_state.last_url_refresh = time.time()
-                            retry_count = 0
-                            status_display.success("✅ Stream URL refreshed")
-                            time.sleep(1)
-                            status_display.empty()
-                        else:
-                            status_display.warning(
-                                "⚠️ Failed to refresh URL, continuing..."
-                            )
-
-                ret, frame = cap.read()
-                if st.session_state.debug_realtime and frame is None:
-                    st.warning(
-                        "⚠️ Read returned no frame (None). Will retry/fallback if configured."
-                    )
-
-                if not ret:
+                try:
+                    # Check if we need to refresh YouTube URL (for livestreams)
                     if (
                         st.session_state.source_name == "YouTube Stream"
-                        and retry_count < max_retries
+                        and st.session_state.youtube_url
                     ):
-                        retry_count += 1
-                        status_display.warning(
-                            f"⚠️ Connection lost. Retry {retry_count}/{max_retries}..."
-                        )
-                        time.sleep(2)
-                        cap.release()
-                        # Try to re-extract fresh URL
-                        if st.session_state.youtube_url:
+                        time_since_refresh = time.time() - st.session_state.last_url_refresh
+                        if time_since_refresh > url_refresh_interval:
+                            status_display.info("🔄 Refreshing stream URL...")
                             new_stream_url = get_youtube_stream_url(
                                 st.session_state.youtube_url
                             )
                             if new_stream_url:
+                                cap.release()
                                 st.session_state.video_source = new_stream_url
                                 cap = open_capture(new_stream_url)
                                 st.session_state.last_url_refresh = time.time()
-                                if st.session_state.debug_realtime:
-                                    st.info(
-                                        f"🔁 Reconnected with new URL: {new_stream_url}"
-                                    )
-                                status_display.success("✅ Reconnected")
+                                retry_count = 0
+                                status_display.success("✅ Stream URL refreshed")
                                 time.sleep(1)
                                 status_display.empty()
+                            else:
+                                status_display.warning(
+                                    "⚠️ Failed to refresh URL, continuing..."
+                                )
+
+                    ret, frame = cap.read()
+                    if st.session_state.debug_realtime and frame is None:
+                        st.warning(
+                            "⚠️ Read returned no frame (None). Will retry/fallback if configured."
+                        )
+
+                    if not ret:
+                        if (
+                            st.session_state.source_name == "YouTube Stream"
+                            and retry_count < max_retries
+                        ):
+                            retry_count += 1
+                            status_display.warning(
+                                f"⚠️ Connection lost. Retry {retry_count}/{max_retries}..."
+                            )
+                            time.sleep(2)
+                            cap.release()
+                            # Try to re-extract fresh URL
+                            if st.session_state.youtube_url:
+                                new_stream_url = get_youtube_stream_url(
+                                    st.session_state.youtube_url
+                                )
+                                if new_stream_url:
+                                    st.session_state.video_source = new_stream_url
+                                    cap = open_capture(new_stream_url)
+                                    st.session_state.last_url_refresh = time.time()
+                                    if st.session_state.debug_realtime:
+                                        st.info(
+                                            f"🔁 Reconnected with new URL: {new_stream_url}"
+                                        )
+                                    status_display.success("✅ Reconnected")
+                                    time.sleep(1)
+                                    status_display.empty()
+                                    continue
+                            else:
+                                cap = open_capture(st.session_state.video_source)
                                 continue
                         else:
-                            cap = open_capture(st.session_state.video_source)
-                            continue
-                    else:
-                        st.error(
-                            f"❌ Stream ended or connection lost after {max_retries} retries."
-                        )
-                        break
+                            st.error(
+                                f"❌ Stream ended or connection lost after {max_retries} retries."
+                            )
+                            break
 
-                frame_count += 1
+                    frame_count += 1
 
-                # Process every N frames
-                if frame_count % frame_skip == 0:
-                    try:
-                        # Resize if needed
-                        if resize_factor < 1.0:
-                            width = int(frame.shape[1] * resize_factor)
-                            height = int(frame.shape[0] * resize_factor)
-                            resized_frame = cv2.resize(frame, (width, height))
-                        else:
-                            resized_frame = frame
+                    # Process every N frames
+                    if frame_count % frame_skip == 0:
+                        try:
+                            # Resize if needed
+                            if resize_factor < 1.0:
+                                width = int(frame.shape[1] * resize_factor)
+                                height = int(frame.shape[0] * resize_factor)
+                                resized_frame = cv2.resize(frame, (width, height))
+                            else:
+                                resized_frame = frame
 
-                        # Detect - most likely place for errors
-                        pred_image, boxes, scores, pred_classes = image_detector.detect(
-                            resized_frame, threshold=threshold, show_progress=False
-                        )
-
-                        # Resize back if needed
-                        if resize_factor < 1.0:
-                            pred_image = cv2.resize(
-                                pred_image, (frame.shape[1], frame.shape[0])
+                            # Detect - most likely place for errors
+                            pred_image, boxes, scores, pred_classes = image_detector.detect(
+                                resized_frame, threshold=threshold, show_progress=False
                             )
 
-                        last_pred_image = pred_image
-                        last_counts = count_classes(pred_classes)
-                        processed_count += 1
-                        
-                    except Exception as detect_error:
-                        st.session_state.realtime_running = False
-                        st.session_state.realtime_error = f"Detection Error: {type(detect_error).__name__}: {str(detect_error)}"
-                        st.session_state.realtime_error_time = time.time()
-                        import traceback
-                        st.session_state.realtime_error += f"\n\nTraceback:\n{traceback.format_exc()}"
-                        if st.session_state.debug_realtime:
-                            st.warning(f"Detection failed: {detect_error}")
-                        break
+                            # Resize back if needed
+                            if resize_factor < 1.0:
+                                pred_image = cv2.resize(
+                                    pred_image, (frame.shape[1], frame.shape[0])
+                                )
 
-                # Calculate FPS
-                current_time = time.time()
-                fps = 1 / (current_time - prev_time + 1e-6)
-                prev_time = current_time
+                            last_pred_image = pred_image
+                            last_counts = count_classes(pred_classes)
+                            processed_count += 1
 
-                # Display frame
-                display_frame = (
-                    last_pred_image if last_pred_image is not None else frame
-                )
-                # Ensure BGR to RGB conversion if needed
-                if display_frame is not None:
-                    if len(display_frame.shape) == 3 and display_frame.shape[2] == 3:
-                        # Check if it needs BGR to RGB conversion
-                        display_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                        except Exception as detect_error:
+                            import traceback
+                            st.session_state.realtime_running = False
+                            error_trace = traceback.format_exc()
+                            st.session_state.realtime_error = f"Detection Error: {type(detect_error).__name__}: {str(detect_error)}\n\nTraceback:\n{error_trace}"
+                            st.session_state.realtime_error_time = time.time()
+                            if st.session_state.debug_realtime:
+                                st.warning(f"Detection failed: {detect_error}")
+                            cap.release()
+                            st.rerun()  # Force rerun to display error
+
+                    # Calculate FPS
+                    current_time = time.time()
+                    fps = 1 / (current_time - prev_time + 1e-6)
+                    prev_time = current_time
+
+                    # Display frame
+                    display_frame = (
+                        last_pred_image if last_pred_image is not None else frame
+                    )
+                    # Ensure BGR to RGB conversion if needed
+                    if display_frame is not None:
+                        if len(display_frame.shape) == 3 and display_frame.shape[2] == 3:
+                            # Check if it needs BGR to RGB conversion
+                            display_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                        else:
+                            display_rgb = display_frame
+
+                        try:
+                            frame_holder.image(
+                                display_rgb,
+                                channels="RGB",
+                                caption=f"FPS: {fps:.1f}",
+                                use_container_width=True,
+                            )
+                        except Exception as e:
+                            if st.session_state.debug_realtime:
+                                st.warning(f"⚠️ Frame display error: {e}")
+
+                    # Update stats
+                    if status_display and not status_display._is_empty:
+                        pass
                     else:
-                        display_rgb = display_frame
+                        status_display.success("🟢 Live")
+                    fps_display.metric("🎯 FPS", f"{fps:.1f}")
+                    frame_count_display.metric("📊 Total Frames", frame_count)
+                    processed_display.metric("✅ Processed", processed_count)
 
-                    try:
-                        frame_holder.image(
-                            display_rgb,
-                            channels="RGB",
-                            caption=f"FPS: {fps:.1f}",
-                            use_container_width=True,
-                        )
-                    except Exception as e:
-                        if st.session_state.debug_realtime:
-                            st.warning(f"⚠️ Frame display error: {e}")
+                    # Update detection results
+                    duration = optimizer.optimize(
+                        last_counts["mobil"], last_counts["motor"]
+                    )
+                    mobil_metric.metric("🚗 Cars", last_counts["mobil"])
+                    motor_metric.metric("🏍️ Motorcycles", last_counts["motor"])
+                    duration_metric.metric("⏱️ Duration", f"{duration} sec")
 
-                # Update stats
-                if status_display and not status_display._is_empty:
-                    pass
-                else:
-                    status_display.success("🟢 Live")
-                fps_display.metric("🎯 FPS", f"{fps:.1f}")
-                frame_count_display.metric("📊 Total Frames", frame_count)
-                processed_display.metric("✅ Processed", processed_count)
-
-                # Update detection results
-                duration = optimizer.optimize(
-                    last_counts["mobil"], last_counts["motor"]
-                )
-                mobil_metric.metric("🚗 Cars", last_counts["mobil"])
-                motor_metric.metric("🏍️ Motorcycles", last_counts["motor"])
-                duration_metric.metric("⏱️ Duration", f"{duration} sec")
-
-                time.sleep(0.001)
+                    time.sleep(0.001)
+                    
+                except Exception as loop_error:
+                    import traceback
+                    st.session_state.realtime_running = False
+                    error_trace = traceback.format_exc()
+                    st.session_state.realtime_error = f"Loop Error: {type(loop_error).__name__}: {str(loop_error)}\n\nTraceback:\n{error_trace}"
+                    st.session_state.realtime_error_time = time.time()
+                    cap.release()
+                    st.rerun()  # Force rerun to display error
 
             cap.release()
             st.session_state.realtime_running = False
@@ -859,19 +870,22 @@ def realtime_mode(image_detector, optimizer, device, threshold):
 
         except Exception as rt_error:
             import traceback
+
             error_trace = traceback.format_exc()
-            
+
             # Store error in session state for persistence
             st.session_state.realtime_running = False
             st.session_state.realtime_error = f"Runtime Error: {type(rt_error).__name__}: {str(rt_error)}\n\nTraceback:\n{error_trace}"
             st.session_state.realtime_error_time = time.time()
-            
+
             # Log to console for debugging
             st.write(f"[ERROR CAPTURED] {st.session_state.realtime_error}")
-            
+
             # Display error in UI
-            st.error(f"❌ Realtime loop failed:\n```\n{st.session_state.realtime_error}\n```")
-            
+            st.error(
+                f"❌ Realtime loop failed:\n```\n{st.session_state.realtime_error}\n```"
+            )
+
             if st.button("🔄 Retry Realtime Mode"):
                 st.session_state.realtime_error = None
                 st.session_state.realtime_running = False
