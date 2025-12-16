@@ -14,13 +14,74 @@ from fastapi import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, Response, JSONResponse, StreamingResponse
+
+
 # ===== YOUTUBE PROXY ENDPOINT =====
 import httpx
 from fastapi import Query
+from contextlib import asynccontextmanager
 
-# Proxy YouTube video stream to bypass CORS
+
+# Define lifespan before app
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Load model and optimizer on startup, cleanup on shutdown"""
+    global model, device, fuzzy_optimizer, image_detector
+
+    # Startup
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    # Ensure model weights exist (auto-download if needed)
+    gdrive_id = os.getenv("MODEL_GDRIVE_ID", MODEL_GDRIVE_ID)
+    if not ensure_model_exists(str(MODEL_PATH), gdrive_id):
+        print("⚠️ WARNING: Running without model weights. Detection will fail.")
+        print("Please download model manually from:")
+        print(
+            "https://drive.google.com/drive/folders/1L419RCGY0zDCPojnsGmZsjhzgsRS1UyS"
+        )
+
+    model = create_faster_rcnn_resnet18(NUM_CLASSES)
+    if Path(MODEL_PATH).exists():
+        checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
+        try:
+            # Prefer training-style checkpoint with explicit key
+            state_dict = checkpoint.get("model_state_dict", None)
+            if state_dict is None:
+                # If checkpoint is already a state_dict, use it directly
+                if isinstance(checkpoint, dict):
+                    state_dict = checkpoint
+                else:
+                    raise ValueError("Unsupported checkpoint format")
+            model.load_state_dict(state_dict)
+            print(f"Model loaded from {MODEL_PATH}")
+        except Exception as e:
+            print(f"Error loading model weights: {e}")
+    else:
+        print(f"Warning: Model not found at {MODEL_PATH}")
+
+    model.to(device)
+    model.eval()
+
+    # Initialize fuzzy logic optimizer and a reusable image detector
+    fuzzy_optimizer = TrafficLightOptimizer()
+    image_detector = ImageDetector(model, str(device))
+    print("Fuzzy logic optimizer initialized")
+    print("Image detector initialized")
+
+    yield
+
+    # Shutdown (cleanup if needed)
+    print("Shutting down...")
+
+
+app = FastAPI(title="Vehicle Counting System", lifespan=lifespan)
+
+
 @app.get("/api/youtube-proxy")
-async def youtube_proxy(url: str = Query(..., description="Direct YouTube stream URL")):
+async def youtube_proxy(
+    url: str = Query(..., description="Direct YouTube stream URL"),
+):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -30,10 +91,16 @@ async def youtube_proxy(url: str = Query(..., description="Direct YouTube stream
             return Response(status_code=r.status_code, content=r.content)
         # Stream the content with correct headers
         content_type = r.headers.get("content-type", "application/octet-stream")
-        return StreamingResponse(r.aiter_bytes(), media_type=content_type, headers={
-            "Access-Control-Allow-Origin": "*",
-            "Content-Disposition": "inline"
-        })
+        return StreamingResponse(
+            r.aiter_bytes(),
+            media_type=content_type,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Content-Disposition": "inline",
+            },
+        )
+
+
 from contextlib import asynccontextmanager
 from starlette.middleware.cors import CORSMiddleware
 import os
