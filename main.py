@@ -13,7 +13,27 @@ from fastapi import (
     Form,
 )
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, Response, JSONResponse
+from fastapi.responses import HTMLResponse, Response, JSONResponse, StreamingResponse
+# ===== YOUTUBE PROXY ENDPOINT =====
+import httpx
+from fastapi import Query
+
+# Proxy YouTube video stream to bypass CORS
+@app.get("/api/youtube-proxy")
+async def youtube_proxy(url: str = Query(..., description="Direct YouTube stream URL")):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, headers=headers, timeout=60, follow_redirects=True)
+        if r.status_code != 200:
+            return Response(status_code=r.status_code, content=r.content)
+        # Stream the content with correct headers
+        content_type = r.headers.get("content-type", "application/octet-stream")
+        return StreamingResponse(r.aiter_bytes(), media_type=content_type, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Content-Disposition": "inline"
+        })
 from contextlib import asynccontextmanager
 from starlette.middleware.cors import CORSMiddleware
 import os

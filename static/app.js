@@ -331,25 +331,52 @@ async function startDetection() {
 async function startPreview() {
     try {
         const source = sourceSelect.value;
-        if (source !== 'webcam') {
-            updateStatus('Preview is only available for webcam source', 'disconnected');
-            return;
+        if (source === 'webcam') {
+            await ensureWebcamStream();
+            videoElement.style.display = 'block';
+            canvasElement.style.display = 'none';
+            roiCanvas.style.display = 'none';
+            previewBtn.disabled = true;
+            startBtn.disabled = false;
+            stopBtn.disabled = false;
+            screenshotBtn.disabled = true;
+            drawRoiBtn.disabled = true;
+            clearRoiBtn.disabled = true;
+            updateStatus('✅ Preview running. Start detection to process frames.', 'connected');
+        } else if (source === 'youtube') {
+            const url = youtubeUrl.value.trim();
+            if (!url) {
+                updateStatus('❌ Please enter YouTube URL', 'disconnected');
+                return;
+            }
+            updateStatus('Connecting to YouTube for preview...', 'processing');
+            const response = await fetch('/api/youtube-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+            if (!response.ok) throw new Error('Failed to connect to YouTube');
+            const data = await response.json();
+            videoElement.src = data.stream_url;
+            await new Promise((resolve) => {
+                videoElement.onloadedmetadata = () => {
+                    videoElement.play();
+                    resolve();
+                };
+            });
+            videoElement.style.display = 'block';
+            canvasElement.style.display = 'none';
+            roiCanvas.style.display = 'none';
+            previewBtn.disabled = true;
+            startBtn.disabled = false;
+            stopBtn.disabled = false;
+            screenshotBtn.disabled = true;
+            drawRoiBtn.disabled = true;
+            clearRoiBtn.disabled = true;
+            updateStatus('✅ YouTube preview running. Start detection to process frames.', 'connected');
+        } else {
+            updateStatus('❌ Preview only available for webcam or YouTube source', 'disconnected');
         }
-
-        await ensureWebcamStream();
-
-        // Show raw video for preview (hide canvases)
-        videoElement.style.display = 'block';
-        canvasElement.style.display = 'none';
-        roiCanvas.style.display = 'none';
-
-        previewBtn.disabled = true;
-        startBtn.disabled = false;
-        stopBtn.disabled = false;
-        screenshotBtn.disabled = true;
-        drawRoiBtn.disabled = true;
-        clearRoiBtn.disabled = true;
-        updateStatus('✅ Preview running. Start detection to process frames.', 'connected');
     } catch (error) {
         console.error('Error starting preview:', error);
         updateStatus(`❌ Preview error: ${error.message}`, 'disconnected');
