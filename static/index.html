@@ -96,11 +96,36 @@
             box-shadow: 0 10px 25px rgba(0,0,0,0.2);
             display: block;
         }
+
+        /* ROI overlay canvas sits above video/canvas */
+        .roi-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* enabled only when drawing */
+        }
+        .roi-canvas.drawing {
+            pointer-events: auto;
+            cursor: crosshair;
+        }
         
         #sourceVideo {
             display: none;
+        }        
+        #uploadCanvas {
+            width: 100%;
+            max-height: 400px;
+            border-radius: 15px;
+            display: block;
+            background: black;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
         }
         
+        #uploadRoiCanvas {
+            max-height: 400px;
+        }        
         .controls {
             background: #f8f9fa;
             padding: 25px;
@@ -280,6 +305,57 @@
         .button-group button {
             flex: 1;
         }
+
+        /* History Panel */
+        .history-panel {
+            margin-top: 30px;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+        .history-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .history-title {
+            font-weight: 700;
+            color: #374151;
+        }
+        .history-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .history-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 12px;
+        }
+        .history-item {
+            display: flex;
+            gap: 10px;
+            background: white;
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.06);
+        }
+        .history-thumb {
+            width: 64px;
+            height: 64px;
+            border-radius: 6px;
+            object-fit: cover;
+            background: #e5e7eb;
+        }
+        .history-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 12px;
+        }
+        .history-meta .title { font-weight: 700; color: #111827; }
+        .history-meta .sub { color: #6b7280; }
         
         @media (max-width: 1024px) {
             .main-content {
@@ -304,6 +380,7 @@
             <div class="main-content">
                 <div class="video-container">
                     <canvas id="videoCanvas"></canvas>
+                    <canvas id="roiCanvas" class="roi-canvas"></canvas>
                     <video id="sourceVideo" autoplay playsinline></video>
                     <div class="fps-counter" id="fpsCounter">FPS: 0</div>
                 </div>
@@ -333,6 +410,17 @@
                         <button id="stopBtn" class="btn-danger" disabled>
                             ⏹️ Stop Detection
                         </button>
+                        <button id="screenshotBtn" class="btn-primary" disabled style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            📸 Screenshot
+                        </button>
+                        <div class="button-group" style="margin-top: 10px;">
+                            <button id="drawRoiBtn" class="btn-primary" disabled>
+                                🟪 Draw ROI
+                            </button>
+                            <button id="clearRoiBtn" class="btn-danger" disabled>
+                                ♻️ Clear ROI
+                            </button>
+                        </div>
                     </div>
                     
                     <div class="control-group">
@@ -347,6 +435,14 @@
                             Processing FPS: <span id="fpsValue">10</span>
                         </label>
                         <input type="range" id="fpsSlider" min="1" max="30" step="1" value="10">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="maskToggle" checked style="width: auto; cursor: pointer;">
+                            <span>✨ Apply Detection Mask</span>
+                        </label>
+                        <small style="color: #666; display: block; margin-top: 5px;">Mask focuses detection on specific regions</small>
                     </div>
                     
                     <div class="stats-grid">
@@ -372,16 +468,24 @@
             <div class="main-content">
                 <div class="video-container">
                     <canvas id="uploadCanvas" style="display: none;"></canvas>
+                    <canvas id="uploadRoiCanvas" class="roi-canvas"></canvas>
                     <img id="uploadPreview" class="upload-preview">
+                    <video id="uploadVideoPreview" style="width: 100%; max-height: 400px; border-radius: 10px; background: black; display: none;" controls></video>
                     <div id="videoResultContainer" style="width: 100%; display: none;">
                         <video id="videoPlayer" style="width: 100%; max-height: 400px; border-radius: 10px; background: black;" controls></video>
                     </div>
-                    <div class="fps-counter" id="uploadStatus">Ready</div>
                 </div>
 
                 <div class="controls">
                     <div id="uploadStatusDisplay" class="status disconnected">
                         ⚠️ Select file
+                    </div>
+
+                    <div id="progressContainer" style="display: none; margin-bottom: 15px;">
+                        <div style="position: relative; background: #e0e0e0; border-radius: 10px; overflow: hidden; height: 24px;">
+                            <div id="progressBar" style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                            <div id="progressText" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9em; color: #111;">0%</div>
+                        </div>
                     </div>
 
                     <div class="control-group">
@@ -396,12 +500,49 @@
                         <input type="range" id="uploadThresholdSlider" min="0.1" max="0.9" step="0.05" value="0.5">
                     </div>
 
+                    <div class="control-group" id="frameSkipGroup" style="display: none;">
+                        <label for="frameSkipSlider">
+                            Frame Skip (faster processing): <span id="frameSkipValue">0</span>
+                        </label>
+                        <input type="range" id="frameSkipSlider" min="0" max="5" step="1" value="0">
+                        <small style="color: #666; display: block; margin-top: 5px;">0 = process all frames, higher = skip more</small>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="uploadMaskToggle" checked style="width: auto; cursor: pointer;">
+                            <span>✨ Apply Detection Mask</span>
+                        </label>
+                        <small style="color: #666; display: block; margin-top: 5px;">Mask focuses detection on specific regions</small>
+                    </div>
+
                     <div class="button-group">
                         <button id="processBtn" class="btn-primary" disabled>
                             🔍 Process
                         </button>
+                        <button id="cancelBtn" class="btn-danger" disabled>
+                            ❌ Cancel
+                        </button>
                         <button id="downloadBtn" class="btn-primary" disabled>
                             ⬇️ Download
+                        </button>
+                    </div>
+
+                    <div class="button-group" style="margin-top: 10px; display: none;">
+                        <button id="drawUploadRoiBtn" class="btn-primary" disabled>
+                            🟪 Draw ROI
+                        </button>
+                        <button id="clearUploadRoiBtn" class="btn-danger" disabled>
+                            ♻️ Clear ROI
+                        </button>
+                    </div>
+
+                    <div class="button-group" style="margin-top: 10px;">
+                        <button id="exportJsonBtn" class="btn-primary" disabled style="background: linear-gradient(135deg, #56ab2f 0%, #a8e063 100%);">
+                            📊 Export JSON
+                        </button>
+                        <button id="exportCsvBtn" class="btn-primary" disabled style="background: linear-gradient(135deg, #56ab2f 0%, #a8e063 100%);">
+                            📈 Export CSV
                         </button>
                     </div>
 
@@ -422,6 +563,18 @@
                 </div>
             </div>
         </div>
+    </div>
+    
+    <!-- History Panel (global) -->
+    <div class="container history-panel">
+        <div class="history-header">
+            <div class="history-title">🕘 Detection History</div>
+            <div class="history-actions">
+                <button id="exportHistoryBtn" class="btn-primary" style="width:auto;padding:10px 16px;background: linear-gradient(135deg, #56ab2f 0%, #a8e063 100%);">Export History CSV</button>
+                <button id="clearHistoryBtn" class="btn-danger" style="width:auto;padding:10px 16px;">Clear History</button>
+            </div>
+        </div>
+        <div id="historyList" class="history-list"></div>
     </div>
     
     <script src="/static/app.js"></script>

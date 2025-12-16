@@ -31,6 +31,7 @@ class ImageDetector:
         self,
         image: np.ndarray,
         threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+        apply_mask: bool = True,
         show_progress: bool = True,
     ) -> Tuple[np.ndarray, List, List, List]:
         """
@@ -39,6 +40,7 @@ class ImageDetector:
         Args:
             image: Input image in BGR format.
             threshold: Confidence threshold for detections.
+            apply_mask: Whether to apply masking to focus detection area.
             show_progress: Whether to show progress tracking (parameter kept for compatibility).
 
         Returns:
@@ -49,7 +51,7 @@ class ImageDetector:
 
         # Preprocess image
         processed_image, orig_height, orig_width = preprocess_image(
-            image, target_size=IMAGE_SIZE, apply_mask=True
+            image, target_size=IMAGE_SIZE, apply_mask=apply_mask
         )
 
         # Convert to tensor

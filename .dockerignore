@@ -1,0 +1,28 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.egg-info
+
+# Venv
+.venv
+
+# Git
+.git
+.gitignore
+
+# Not needed in image
+IMPROVEMENTS.md
+FASTAPI_README.md
+
+# Large or local data
+input/
+assets/
+model/*.pth
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/

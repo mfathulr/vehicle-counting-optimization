@@ -13,6 +13,10 @@ MODEL_PATH = MODEL_DIR / "best_model.pth"
 NUM_CLASSES = 3
 CLASS_NAMES = ["__background__", "mobil", "motor"]
 
+# Google Drive model download (optional - set via env var or provide direct ID)
+# Get file ID from: https://drive.google.com/drive/folders/1L419RCGY0zDCPojnsGmZsjhzgsRS1UyS
+MODEL_GDRIVE_ID = None  # Set to Google Drive file ID for auto-download
+
 # Detection colors (BGR format for OpenCV)
 CLASS_COLORS = {
     "__background__": (255, 0, 0),
@@ -26,7 +30,8 @@ MASK_PATH = ASSETS_DIR / "mask.png"
 
 # Detection parameters
 # Confidence threshold for filtering detections
-DEFAULT_CONFIDENCE_THRESHOLD = 0.25
+DEFAULT_CONFIDENCE_THRESHOLD = 0.5  # Increased from 0.25 to reduce false positives
+DEFAULT_IOU_THRESHOLD = 0.5  # IoU threshold for NMS (Non-Maximum Suppression)
 MIN_BOX_SIZE = 2  # Minimum box width/height in pixels
 
 # Anchor generator configuration
