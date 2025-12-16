@@ -25,7 +25,8 @@ IMAGE_SIZE = 512
 MASK_PATH = ASSETS_DIR / "mask.png"
 
 # Detection parameters
-DEFAULT_IOU_THRESHOLD = 0.25
+# Confidence threshold for filtering detections
+DEFAULT_CONFIDENCE_THRESHOLD = 0.25
 MIN_BOX_SIZE = 2  # Minimum box width/height in pixels
 
 # Anchor generator configuration

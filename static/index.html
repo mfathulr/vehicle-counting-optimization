@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Counting System - WebRTC</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 30px;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        /* Mode Selector */
+        .mode-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            justify-content: center;
+        }
+
+        .mode-btn {
+            padding: 12px 24px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .mode-btn.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .mode-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        /* Content Sections */
+        .mode-content {
+            display: none;
+        }
+
+        .mode-content.active {
+            display: block;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+            margin-bottom: 20px;
+        }
+        
+        .video-container {
+            position: relative;
+        }
+        
+        #videoCanvas, #sourceVideo {
+            width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            display: block;
+        }
+        
+        #sourceVideo {
+            display: none;
+        }
+        
+        .controls {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .control-group {
+            margin-bottom: 20px;
+        }
+        
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input[type="text"],
+        input[type="file"],
+        input[type="range"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+
+        input[type="file"] {
+            padding: 8px;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1em;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 10px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        input[type="range"] {
+            height: 8px;
+            border-radius: 5px;
+            background: #ddd;
+            outline: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .stat-card.mobil .stat-value {
+            color: #10b981;
+        }
+        
+        .stat-card.motor .stat-value {
+            color: #3b82f6;
+        }
+        
+        .stat-card.duration .stat-value {
+            color: #8b5cf6;
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+        
+        .status.connected {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status.disconnected {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .status.processing {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .fps-counter {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .upload-preview {
+            width: 100%;
+            max-height: 300px;
+            margin-top: 10px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .upload-preview.active {
+            display: block;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .button-group button {
+            flex: 1;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚗 Vehicle Counting System</h1>
+        <p class="subtitle">Real-time detection using WebRTC & AI</p>
+        
+        <!-- Mode Selector -->
+        <div class="mode-selector">
+            <button class="mode-btn active" data-mode="realtime">🎥 Realtime</button>
+            <button class="mode-btn" data-mode="upload">📤 Upload</button>
+        </div>
+
+        <!-- REALTIME MODE -->
+        <div id="realtime-mode" class="mode-content active">
+            <div class="main-content">
+                <div class="video-container">
+                    <canvas id="videoCanvas"></canvas>
+                    <video id="sourceVideo" autoplay playsinline></video>
+                    <div class="fps-counter" id="fpsCounter">FPS: 0</div>
+                </div>
+                
+                <div class="controls">
+                    <div id="statusDisplay" class="status disconnected">
+                        ⚠️ Not connected
+                    </div>
+
+                    <div class="control-group">
+                        <label>🎥 Source:</label>
+                        <select id="sourceSelect" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ddd;">
+                            <option value="webcam">Webcam</option>
+                            <option value="youtube">YouTube URL</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group" id="youtubeGroup" style="display: none;">
+                        <label>YouTube URL:</label>
+                        <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
+                    </div>
+                    
+                    <div class="control-group">
+                        <button id="startBtn" class="btn-primary">
+                            📹 Start Detection
+                        </button>
+                        <button id="stopBtn" class="btn-danger" disabled>
+                            ⏹️ Stop Detection
+                        </button>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label for="thresholdSlider">
+                            Detection Threshold: <span id="thresholdValue">0.5</span>
+                        </label>
+                        <input type="range" id="thresholdSlider" min="0.1" max="0.9" step="0.05" value="0.5">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label for="fpsSlider">
+                            Processing FPS: <span id="fpsValue">10</span>
+                        </label>
+                        <input type="range" id="fpsSlider" min="1" max="30" step="1" value="10">
+                    </div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card mobil">
+                            <div class="stat-label">🚗 Cars</div>
+                            <div class="stat-value" id="mobilCount">0</div>
+                        </div>
+                        <div class="stat-card motor">
+                            <div class="stat-label">🏍️ Motorcycles</div>
+                            <div class="stat-value" id="motorCount">0</div>
+                        </div>
+                        <div class="stat-card duration" style="grid-column: span 2;">
+                            <div class="stat-label">🚦 Traffic Light Duration</div>
+                            <div class="stat-value" id="durationValue">0s</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- UPLOAD MODE -->
+        <div id="upload-mode" class="mode-content">
+            <div class="main-content">
+                <div class="video-container">
+                    <canvas id="uploadCanvas" style="display: none;"></canvas>
+                    <img id="uploadPreview" class="upload-preview">
+                    <div id="videoResultContainer" style="width: 100%; display: none;">
+                        <video id="videoPlayer" style="width: 100%; max-height: 400px; border-radius: 10px; background: black;" controls></video>
+                    </div>
+                    <div class="fps-counter" id="uploadStatus">Ready</div>
+                </div>
+
+                <div class="controls">
+                    <div id="uploadStatusDisplay" class="status disconnected">
+                        ⚠️ Select file
+                    </div>
+
+                    <div class="control-group">
+                        <label>📁 Select File:</label>
+                        <input type="file" id="fileInput" accept="image/*,video/*">
+                    </div>
+
+                    <div class="control-group">
+                        <label for="uploadThresholdSlider">
+                            Detection Threshold: <span id="uploadThresholdValue">0.5</span>
+                        </label>
+                        <input type="range" id="uploadThresholdSlider" min="0.1" max="0.9" step="0.05" value="0.5">
+                    </div>
+
+                    <div class="button-group">
+                        <button id="processBtn" class="btn-primary" disabled>
+                            🔍 Process
+                        </button>
+                        <button id="downloadBtn" class="btn-primary" disabled>
+                            ⬇️ Download
+                        </button>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-card mobil">
+                            <div class="stat-label">🚗 Cars</div>
+                            <div class="stat-value" id="uploadMobilCount">0</div>
+                        </div>
+                        <div class="stat-card motor">
+                            <div class="stat-label">🏍️ Motorcycles</div>
+                            <div class="stat-value" id="uploadMotorCount">0</div>
+                        </div>
+                        <div class="stat-card duration" style="grid-column: span 2;">
+                            <div class="stat-label">🚦 Traffic Light Duration</div>
+                            <div class="stat-value" id="uploadDurationValue">0s</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>

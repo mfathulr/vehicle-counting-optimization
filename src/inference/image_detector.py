@@ -2,10 +2,9 @@
 
 import torch
 import numpy as np
-import streamlit as st
 from typing import Tuple, List
 
-from ..config import CLASS_NAMES, IMAGE_SIZE, DEFAULT_IOU_THRESHOLD
+from ..config import CLASS_NAMES, IMAGE_SIZE, DEFAULT_CONFIDENCE_THRESHOLD
 from ..utils.preprocessing import (
     preprocess_image,
     draw_detection_box,
@@ -31,7 +30,7 @@ class ImageDetector:
     def detect(
         self,
         image: np.ndarray,
-        threshold: float = DEFAULT_IOU_THRESHOLD,
+        threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
         show_progress: bool = True,
     ) -> Tuple[np.ndarray, List, List, List]:
         """
@@ -40,19 +39,11 @@ class ImageDetector:
         Args:
             image: Input image in BGR format.
             threshold: Confidence threshold for detections.
-            show_progress: Whether to show progress bar in Streamlit.
+            show_progress: Whether to show progress tracking (parameter kept for compatibility).
 
         Returns:
             Tuple of (annotated image, boxes, scores, class names).
         """
-        # Setup progress tracking
-        if show_progress:
-            progress_bar = st.sidebar.progress(0)
-            progress_text = st.sidebar.empty()
-        else:
-            progress_bar = None
-            progress_text = None
-
         # Store original image
         orig_image = image.copy()
 
@@ -88,9 +79,6 @@ class ImageDetector:
 
         # Handle case with no detections
         if not filtered_boxes:
-            if progress_bar:
-                progress_bar.progress(1.0)
-                progress_text.markdown("100%")
             return orig_image, filtered_boxes, filtered_scores, filtered_classes
 
         # Draw detections
@@ -106,11 +94,5 @@ class ImageDetector:
                 orig_height,
                 IMAGE_SIZE,
             )
-
-            # Update progress
-            if progress_bar:
-                progress = (i + 1) / len(filtered_boxes)
-                progress_bar.progress(progress)
-                progress_text.markdown(f"{int(progress * 100)}%")
 
         return orig_image, filtered_boxes, filtered_scores, filtered_classes
