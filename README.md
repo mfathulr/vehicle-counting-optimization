@@ -1,52 +1,61 @@
+## API Endpoints
+
+| Endpoint                | Method      | Description                                                      |
+|-------------------------|-------------|------------------------------------------------------------------|
+| `/ws`                   | WebSocket   | Real-time vehicle detection (webcam/YouTube preview & detection)  |
+| `/ws/process-video`     | WebSocket   | Process uploaded video/image                                      |
+| `/api/video/{filename}` | GET         | Serve processed video                                            |
+| `/api/youtube-proxy`    | GET         | Proxy YouTube video stream for preview/detection (CORS bypass)    |
 # Vehicle Counting & Traffic Light Optimization
 
 FastAPI + WebSocket application for vehicle counting with Faster R-CNN (ResNet18) and fuzzy logic to suggest green-light durations. Frontend is a single HTML/JS page served from `static/`.
 
-## Highlights
-- **Faster R-CNN vehicle detection** (cars, motorcycles)
-- **Dual-mode operation:**
-  - **Realtime Mode**: Live webcam feed with browser camera access (MediaStream API)
-  - **Upload Mode**: Process pre-recorded video/images with live stream preview and text overlays
-- **Dynamic traffic light duration** calculated per-frame based on vehicle counts
-- **Per-frame metrics**: Vehicle counting without cumulative totals for real-time accuracy
-- **Live frame preview** with detection boxes drawn in real-time
-- **Text overlays**: Cars, Bikes, and Duration displayed on processed output
-- **Video compatibility**: FFmpeg-based H.264 re-encoding for browser playback
-- **File size validation**: 500MB upload limit to prevent WebSocket overflow
-- **Web UI** with configurable thresholds, FPS, frame skip, and ROI drawing
+## Features
 
-## Quick Start
-1) Clone & enter repo
+### 1. Realtime Mode (Webcam & YouTube)
+- Live preview from webcam (MediaStream API) or YouTube video (via backend proxy)
+- Start/stop preview before detection for both sources
+- Per-frame vehicle detection and traffic light duration calculation
+- Stream cleanup on mode/source switch (webcam stops when switching to YouTube, and vice versa)
+
+## Usage
+
+### 1. Install dependencies
+
 ```bash
-git clone https://github.com/mfathulr/vehicle-counting-optimization.git
-cd vehicle-counting-optimization
-```
-2) Create & activate venv (example)
-```bash
-python -m venv .venv
-./.venv/Scripts/Activate.ps1   # Windows PowerShell
-# source .venv/bin/activate    # macOS/Linux
-```
-3) Install deps
-```bash
-pip install --upgrade pip
 pip install -r requirements.txt
 ```
-4) Get weights
-- **Auto-download** (recommended): Set `MODEL_GDRIVE_ID` env var or the app will prompt for manual download
-- Git LFS: `model/best_model.pth` can be tracked via LFS. Run `git lfs install` before pulling.
-- Manual: Download from [Google Drive](https://drive.google.com/drive/folders/1L419RCGY0zDCPojnsGmZsjhzgsRS1UyS?usp=sharing) and place in `model/`.
 
-**Note**: If model is missing, the app will attempt auto-download on first run (requires `MODEL_GDRIVE_ID`).
-
-## Config
-- Detection / mask / colors: [src/config.py](src/config.py)
-- Fuzzy logic rules: [src/optimization/fuzzy_controller.py](src/optimization/fuzzy_controller.py)
-
-## FastAPI (WebSocket) Run
-For browser-based vehicle counting via WebSocket (realtime camera or uploaded files):
+### 2. Run the FastAPI server
 
 ```bash
+uvicorn main:app --reload
+```
+
+### 3. Open the Web UI
+
+- Go to [http://localhost:8000/static/index.html](http://localhost:8000/static/index.html)
+
+### 4. Modes
+
+- **Realtime Mode**: Select webcam or YouTube, click "Preview" to start live stream, then "Start Detection". Stream cleanup is automatic when switching sources.
+- **Upload Mode**: Upload video/image (max 500MB), preview, then start detection.
+
+### 5. YouTube CORS Proxy
+
+- Enter a YouTube URL in Realtime Mode and click "Preview". The backend `/api/youtube-proxy` endpoint will stream the video to the frontend, bypassing CORS restrictions. No browser CORS errors.
+
+### 6. File Size Limit
+
+- Uploads are limited to 500MB. Larger files are rejected client-side before upload.
+
+### 7. Model
+
+- The model is loaded from `model/best_model.pth` (PyTorch Faster R-CNN).
+
+### 8. Configuration
+
+- Adjust thresholds, FPS, frame skip, and ROI in the Web UI as needed.
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
