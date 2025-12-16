@@ -39,6 +39,7 @@ let uploadThreshold = 0.5;
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB in bytes
 
 // DOM Elements - Realtime
+const previewBtn = document.getElementById('previewBtn');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const statusDisplay = document.getElementById('statusDisplay');
@@ -205,6 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadRoiCtx = uploadRoiCanvas.getContext('2d');
     
     // Event listeners - Realtime
+    previewBtn.addEventListener('click', startPreview);
     startBtn.addEventListener('click', startDetection);
     stopBtn.addEventListener('click', stopDetection);
     
@@ -219,10 +221,22 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     sourceSelect.addEventListener('change', (e) => {
-        if (e.target.value === 'youtube') {
-            youtubeGroup.style.display = 'block';
-        } else {
-            youtubeGroup.style.display = 'none';
+        const isYoutube = e.target.value === 'youtube';
+        youtubeGroup.style.display = isYoutube ? 'block' : 'none';
+
+        // If user was previewing webcam and switches to YouTube, stop the webcam stream
+        if (isYoutube && !isRunning && stream) {
+            stopStreamOnly();
+            previewBtn.disabled = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            screenshotBtn.disabled = true;
+            drawRoiBtn.disabled = true;
+            clearRoiBtn.disabled = true;
+            canvasElement.style.display = 'block';
+            roiCanvas.style.display = 'block';
+            videoElement.style.display = 'none';
+            updateStatus('⚠️ Webcam stopped (switched to YouTube)', 'disconnected');
         }
     });
 
@@ -276,9 +290,23 @@ function switchMode(mode) {
     modeContents.forEach(content => content.classList.remove('active'));
     document.getElementById(`${mode}-mode`).classList.add('active');
     
-    // Stop detection if switching from realtime
-    if (mode !== 'realtime' && isRunning) {
-        stopDetection();
+    // Stop detection or preview stream when leaving realtime
+    if (mode !== 'realtime') {
+        if (isRunning) {
+            stopDetection();
+        } else if (stream) {
+            stopStreamOnly();
+            previewBtn.disabled = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            screenshotBtn.disabled = true;
+            drawRoiBtn.disabled = true;
+            clearRoiBtn.disabled = true;
+            canvasElement.style.display = 'block';
+            roiCanvas.style.display = 'block';
+            videoElement.style.display = 'none';
+            updateStatus('⚠️ Webcam stopped (switched mode)', 'disconnected');
+        }
     }
 }
 
@@ -300,9 +328,40 @@ async function startDetection() {
     }
 }
 
-async function startWebcamDetection() {
+async function startPreview() {
+    try {
+        const source = sourceSelect.value;
+        if (source !== 'webcam') {
+            updateStatus('Preview is only available for webcam source', 'disconnected');
+            return;
+        }
+
+        await ensureWebcamStream();
+
+        // Show raw video for preview (hide canvases)
+        videoElement.style.display = 'block';
+        canvasElement.style.display = 'none';
+        roiCanvas.style.display = 'none';
+
+        previewBtn.disabled = true;
+        startBtn.disabled = false;
+        stopBtn.disabled = false;
+        screenshotBtn.disabled = true;
+        drawRoiBtn.disabled = true;
+        clearRoiBtn.disabled = true;
+        updateStatus('✅ Preview running. Start detection to process frames.', 'connected');
+    } catch (error) {
+        console.error('Error starting preview:', error);
+        updateStatus(`❌ Preview error: ${error.message}`, 'disconnected');
+    }
+}
+
+async function ensureWebcamStream() {
+    if (stream && stream.getTracks().some(t => t.readyState === 'live')) {
+        return; // already have an active stream
+    }
+
     updateStatus('Requesting camera access...', 'processing');
-    
     stream = await navigator.mediaDevices.getUserMedia({
         video: {
             width: { ideal: 1280 },
@@ -311,10 +370,10 @@ async function startWebcamDetection() {
         },
         audio: false
     });
-    
+
     console.log('Camera stream acquired');
     videoElement.srcObject = stream;
-    
+
     await new Promise((resolve) => {
         videoElement.onloadedmetadata = () => {
             console.log(`Video loaded: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
@@ -322,15 +381,25 @@ async function startWebcamDetection() {
             resolve();
         };
     });
-    
+
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
-    // match ROI canvas to display size
     roiCanvas.width = canvasElement.width;
     roiCanvas.height = canvasElement.height;
+}
+
+async function startWebcamDetection() {
+    await ensureWebcamStream();
+    // if preview was running, reuse the stream and proceed to websocket
+
+    // Switch back to canvas rendering for detection
+    videoElement.style.display = 'none';
+    canvasElement.style.display = 'block';
+    roiCanvas.style.display = 'block';
     
     connectWebSocket();
     
+    previewBtn.disabled = true;
     startBtn.disabled = true;
     stopBtn.disabled = false;
     screenshotBtn.disabled = false;
@@ -389,11 +458,7 @@ async function startYoutubeDetection() {
 
 function stopDetection() {
     isRunning = false;
-    
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-    }
+    stopStreamOnly();
     
     if (ws) {
         ws.close();
@@ -405,8 +470,23 @@ function stopDetection() {
     startBtn.disabled = false;
     stopBtn.disabled = true;
     screenshotBtn.disabled = true;
+    previewBtn.disabled = false;
+    // Reset displays to default (canvas visible, video hidden)
+    canvasElement.style.display = 'block';
+    roiCanvas.style.display = 'block';
+    videoElement.style.display = 'none';
     updateStatus('⚠️ Disconnected', 'disconnected');
     
+
+function stopStreamOnly() {
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+    }
+    if (videoElement) {
+        videoElement.srcObject = null;
+    }
+}
     mobilCount.textContent = '0';
     motorCount.textContent = '0';
     durationValue.textContent = '0s';
