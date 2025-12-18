@@ -19,6 +19,7 @@ let uploadRoiCanvas, uploadRoiCtx; // upload ROI overlay
 let stream = null;
 let ws = null;
 let isRunning = false;
+let isPreviewing = false; // <-- NEW: preview state
 let processingFps = 10;
 let threshold = 0.5;
 let lastFrameTime = 0;
@@ -206,7 +207,13 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadRoiCtx = uploadRoiCanvas.getContext('2d');
     
     // Event listeners - Realtime
-    previewBtn.addEventListener('click', startPreview);
+    previewBtn.addEventListener('click', () => {
+        if (!isPreviewing) {
+            startPreview();
+        } else {
+            stopPreview();
+        }
+    });
     startBtn.addEventListener('click', startDetection);
     stopBtn.addEventListener('click', stopDetection);
     
@@ -223,20 +230,9 @@ document.addEventListener('DOMContentLoaded', () => {
     sourceSelect.addEventListener('change', (e) => {
         const isYoutube = e.target.value === 'youtube';
         youtubeGroup.style.display = isYoutube ? 'block' : 'none';
-
-        // If user was previewing webcam and switches to YouTube, stop the webcam stream
-        if (isYoutube && !isRunning && stream) {
-            stopStreamOnly();
-            previewBtn.disabled = false;
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            screenshotBtn.disabled = true;
-            drawRoiBtn.disabled = true;
-            clearRoiBtn.disabled = true;
-            canvasElement.style.display = 'block';
-            roiCanvas.style.display = 'block';
-            videoElement.style.display = 'none';
-            updateStatus('⚠️ Webcam stopped (switched to YouTube)', 'disconnected');
+        // Always stop preview if switching source
+        if (isPreviewing) {
+            stopPreview();
         }
     });
 
@@ -294,18 +290,8 @@ function switchMode(mode) {
     if (mode !== 'realtime') {
         if (isRunning) {
             stopDetection();
-        } else if (stream) {
-            stopStreamOnly();
-            previewBtn.disabled = false;
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            screenshotBtn.disabled = true;
-            drawRoiBtn.disabled = true;
-            clearRoiBtn.disabled = true;
-            canvasElement.style.display = 'block';
-            roiCanvas.style.display = 'block';
-            videoElement.style.display = 'none';
-            updateStatus('⚠️ Webcam stopped (switched mode)', 'disconnected');
+        } else if (isPreviewing) {
+            stopPreview();
         }
     }
 }
@@ -336,7 +322,7 @@ async function startPreview() {
             videoElement.style.display = 'block';
             canvasElement.style.display = 'none';
             roiCanvas.style.display = 'none';
-            previewBtn.disabled = true;
+            previewBtn.disabled = false;
             startBtn.disabled = false;
             stopBtn.disabled = false;
             screenshotBtn.disabled = true;
@@ -367,7 +353,7 @@ async function startPreview() {
             videoElement.style.display = 'block';
             canvasElement.style.display = 'none';
             roiCanvas.style.display = 'none';
-            previewBtn.disabled = true;
+            previewBtn.disabled = false;
             startBtn.disabled = false;
             stopBtn.disabled = false;
             screenshotBtn.disabled = true;
@@ -377,10 +363,48 @@ async function startPreview() {
         } else {
             updateStatus('❌ Preview only available for webcam or YouTube source', 'disconnected');
         }
+        isPreviewing = true;
+        previewBtn.innerHTML = '⏹️ Stop Preview';
     } catch (error) {
         console.error('Error starting preview:', error);
         updateStatus(`❌ Preview error: ${error.message}`, 'disconnected');
     }
+}
+
+function stopPreview() {
+    // Utility to stop webcam or YouTube stream
+    function stopStreamOnly() {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+        }
+        if (videoElement) {
+            videoElement.srcObject = null;
+            videoElement.src = '';
+        }
+    }
+    stopStreamOnly();
+    // Reset video element for both webcam and YouTube
+    if (videoElement) {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.srcObject = null;
+        videoElement.style.display = 'none';
+    }
+    if (canvasElement) {
+        canvasElement.style.display = 'block';
+    }
+    if (roiCanvas) {
+        roiCanvas.style.display = 'block';
+    }
+    isPreviewing = false;
+    previewBtn.innerHTML = '▶️ Start Preview';
+    updateStatus('Preview stopped', 'disconnected');
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    screenshotBtn.disabled = true;
+    drawRoiBtn.disabled = true;
+    clearRoiBtn.disabled = true;
 }
 
 async function ensureWebcamStream() {
@@ -485,15 +509,12 @@ async function startYoutubeDetection() {
 
 function stopDetection() {
     isRunning = false;
-    stopStreamOnly();
-    
+    stopPreview();
     if (ws) {
         ws.close();
         ws = null;
     }
-    
     ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-    
     startBtn.disabled = false;
     stopBtn.disabled = true;
     screenshotBtn.disabled = true;
@@ -503,17 +524,6 @@ function stopDetection() {
     roiCanvas.style.display = 'block';
     videoElement.style.display = 'none';
     updateStatus('⚠️ Disconnected', 'disconnected');
-    
-
-function stopStreamOnly() {
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-    }
-    if (videoElement) {
-        videoElement.srcObject = null;
-    }
-}
     mobilCount.textContent = '0';
     motorCount.textContent = '0';
     durationValue.textContent = '0s';
