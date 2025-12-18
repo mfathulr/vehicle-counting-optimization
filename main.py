@@ -383,7 +383,33 @@ async def websocket_detect(websocket: WebSocket):
                     _, buffer = cv2.imencode(".jpg", annotated_frame)
                     annotated_b64 = base64.b64encode(buffer).decode("utf-8")
 
-                    # Send results back to client
+                    # Prepare detection data (normalized coordinates) for lightweight client overlays
+                    detections_list = []
+                    try:
+                        h_full, w_full = frame.shape[:2]
+                        for box, cls, score in zip(boxes, pred_classes, scores):
+                            # box format from detector: [xmin, ymin, xmax, ymax] in model input scale
+                            # Use draw_detection_box scaling logic to map to original size above, so boxes are already in input scale
+                            # Here we compute normalized coordinates relative to original full frame
+                            xmin, ymin, xmax, ymax = box.tolist()
+                            # Some boxes may already be scaled; clamp values after normalization
+                            x_norm = max(0.0, min(1.0, xmin / max(1, w_full)))
+                            y_norm = max(0.0, min(1.0, ymin / max(1, h_full)))
+                            w_norm = max(0.0, min(1.0, (xmax - xmin) / max(1, w_full)))
+                            h_norm = max(0.0, min(1.0, (ymax - ymin) / max(1, h_full)))
+                            detections_list.append({
+                                "class": cls,
+                                "score": float(score),
+                                "x": x_norm,
+                                "y": y_norm,
+                                "w": w_norm,
+                                "h": h_norm,
+                            })
+                    except Exception:
+                        detections_list = []
+
+                    # Send results back to client. Include both annotated_frame for compatibility
+                    # and lightweight detection entries for front-end overlay drawing.
                     result = {
                         "type": "result",
                         "annotated_frame": f"data:image/jpeg;base64,{annotated_b64}",
@@ -392,6 +418,7 @@ async def websocket_detect(websocket: WebSocket):
                         "total_vehicles": mobil_count + motor_count,
                         "duration": duration,
                         "detections": len(boxes),
+                        "detections_data": detections_list,
                     }
 
                     await websocket.send_json(result)

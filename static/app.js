@@ -27,6 +27,14 @@ let lastSendTime = 0;
 let fpsHistory = [];
 let inFlight = false; // backpressure flag
 let lastLatencyMs = 0; // round-trip latency
+// Last detections received from server (normalized coords)
+let lastDetections = null;
+let lastDetectionsTs = 0;
+const DETECTION_DISPLAY_MS = 800; // how long to show boxes after result (ms)
+// Latest stats for overlay (counts + duration)
+let lastStats = { mobil: 0, motor: 0, duration: 0 };
+let lastStatsTs = 0;
+const STATS_DISPLAY_MS = 2000; // keep stats visible for this long
 
 // ROI State
 let isDrawingRoi = false;
@@ -611,6 +619,19 @@ function processFrame(timestamp) {
         requestAnimationFrame(processFrame);
         return;
     }
+
+    // Draw detection overlays if available (draw on top of current video frame)
+    try {
+        if (lastDetections && (performance.now() - lastDetectionsTs) < DETECTION_DISPLAY_MS) {
+            drawDetections(lastDetections);
+        }
+        // draw stats overlay on top-left
+        if (lastStats && (performance.now() - lastStatsTs) < STATS_DISPLAY_MS) {
+            drawStatsOverlay(lastStats);
+        }
+    } catch (e) {
+        console.error('Error drawing detections overlay:', e);
+    }
     
     const frameInterval = 1000 / processingFps;
     const elapsed = timestamp - lastSendTime;
@@ -640,12 +661,26 @@ function processFrame(timestamp) {
 }
 
 function handleDetectionResult(result) {
-    const img = new Image();
-    img.onload = () => {
-        ctx.drawImage(img, 0, 0, canvasElement.width, canvasElement.height);
-    };
-    img.src = result.annotated_frame;
-    
+    // Prefer structured detection data for lightweight overlays
+    if (result.detections_data && Array.isArray(result.detections_data) && result.detections_data.length > 0) {
+        lastDetections = result.detections_data;
+        lastDetectionsTs = performance.now();
+        // update stats snapshot for overlay
+        lastStats = { mobil: result.mobil_count ?? 0, motor: result.motor_count ?? 0, duration: result.duration ?? 0 };
+        lastStatsTs = performance.now();
+    } else if (result.annotated_frame) {
+        // Fallback: draw annotated_frame image from server
+        const img = new Image();
+        img.onload = () => {
+            ctx.drawImage(img, 0, 0, canvasElement.width, canvasElement.height);
+            // draw stats overlay on top of annotated frame
+            lastStats = { mobil: result.mobil_count ?? 0, motor: result.motor_count ?? 0, duration: result.duration ?? 0 };
+            lastStatsTs = performance.now();
+            drawStatsOverlay(lastStats);
+        };
+        img.src = result.annotated_frame;
+    }
+
     mobilCount.textContent = result.mobil_count;
     motorCount.textContent = result.motor_count;
     durationValue.textContent = `${result.duration}s`;
@@ -673,6 +708,114 @@ function handleDetectionResult(result) {
     } catch (e) {
         // ignore history errors
     }
+}
+
+// Draw detection boxes on top of the current canvas frame
+function drawDetections(detections) {
+    if (!detections || !detections.length) return;
+    const w = canvasElement.width;
+    const h = canvasElement.height;
+    // draw semi-transparent boxes and labels
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.font = '12px Arial';
+    ctx.textBaseline = 'top';
+
+    // class color mapping (BGR -> convert to CSS rgb)
+    const CLASS_COLORS = {
+        mobil: [0, 255, 0],
+        motor: [0, 0, 255],
+        __background__: [255, 0, 0]
+    };
+
+    for (const d of detections) {
+        try {
+            const cx = Math.max(0, Math.min(1, Number(d.x) || 0));
+            const cy = Math.max(0, Math.min(1, Number(d.y) || 0));
+            const cw = Math.max(0, Math.min(1, Number(d.w) || 0));
+            const ch = Math.max(0, Math.min(1, Number(d.h) || 0));
+            const x = Math.round(cx * w);
+            const y = Math.round(cy * h);
+            const bw = Math.round(cw * w);
+            const bh = Math.round(ch * h);
+            // pick color from CLASS_COLORS (BGR -> RGB)
+            const cls = d.class || '__background__';
+            const bgr = CLASS_COLORS[cls] || [0, 255, 0];
+            const cssColor = `rgb(${bgr[2]}, ${bgr[1]}, ${bgr[0]})`;
+
+            // draw box
+            ctx.strokeStyle = cssColor;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 1.0;
+            ctx.strokeRect(x, y, bw, bh);
+
+            // draw label background (filled with class color)
+            const scoreText = d.score ? ` ${Number(d.score).toFixed(2)}` : '';
+            const label = `${d.class || ''}${scoreText}`.trim();
+            if (label) {
+                const padding = 6;
+                ctx.font = '12px Arial';
+                const textW = Math.ceil(ctx.measureText(label).width);
+                const textH = 14;
+                const lx = x;
+                const ly = Math.max(0, y - textH - 4);
+                ctx.fillStyle = cssColor;
+                ctx.globalAlpha = 1.0;
+                ctx.fillRect(lx, ly, textW + padding, textH + 4);
+                // label text in black
+                ctx.fillStyle = '#000';
+                ctx.fillText(label, lx + 4, ly + 2);
+            }
+        } catch (e) {
+            // ignore per-detection errors
+        }
+    }
+    ctx.restore();
+}
+
+// Draw counts and duration overlay in top-left (matches upload mode style)
+function drawStatsOverlay(stats) {
+    if (!stats) return;
+    // Match upload-mode overlay: semi-transparent black background rectangles with green text
+    const padding = 10;
+    const lineHeight = 30; // matches cv2 line spacing used in backend
+    const textX = padding;
+    const textYStart = padding + 25; // matches backend text_y_start
+
+    const lines = [
+        `Cars: ${stats.mobil ?? 0}`,
+        `Bikes: ${stats.motor ?? 0}`,
+        `Duration: ${stats.duration ?? 0}s`,
+    ];
+
+    ctx.save();
+    ctx.font = '16px Segoe UI, Arial';
+    ctx.textBaseline = 'top';
+
+    for (let i = 0; i < lines.length; i++) {
+        const text = lines[i];
+        const textSize = Math.ceil(ctx.measureText(text).width);
+        const tx = textX;
+        const ty = textYStart + i * lineHeight;
+
+        // draw semi-transparent black rectangle behind text (slightly larger than text)
+        const rectX1 = tx - 5;
+        const rectY1 = ty - 20;
+        const rectW = textSize + 10;
+        const rectH = 24;
+
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(rectX1, rectY1, rectW, rectH);
+
+        // draw green text
+        ctx.globalAlpha = 1.0;
+        ctx.fillStyle = '#00FF00';
+        ctx.font = '16px Segoe UI, Arial';
+        ctx.fillText(text, tx, ty - 4);
+    }
+
+    ctx.restore();
 }
 
 function updateStatus(message, statusClass) {
